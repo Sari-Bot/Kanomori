@@ -1,0 +1,80 @@
+[project]
+name = "kanomori"
+version = "0.1.0"
+description = "Multimodal moment-level retrieval for VTuber (鹿乃) livestream archives"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { text = "MIT" }
+
+# Core runtime deps are CPU-only and intentionally light: enough for the API skeleton,
+# the DB layer, and the pure-logic modules (srt/fusion/scene). The heavy ML / ingestion
+# stacks live in opt-in dependency groups (`embed`, `ingest`) so `uv sync` stays fast and
+# never pulls KITS's GPU torch stack. KITS is consumed as a subprocess, never imported.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3.6",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.12",
+    "numpy>=2.0",
+]
+
+[project.scripts]
+kanomori-migrate = "kanomori.migrate:main"
+kanomori-worker = "kanomori.ingest.worker:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kanomori"]
+
+[dependency-groups]
+# Default group: installed by `uv sync`. Lint + test only — pure-logic tests need nothing else.
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "httpx>=0.28",
+]
+# Offline ingestion (frames/OCR/JP tokenization). CPU, heavier than core. `uv sync --group ingest`.
+ingest = [
+    "pillow>=11.0",
+    "imagehash>=4.3",
+    "scenedetect[opencv]>=0.6.5",
+    "ffmpeg-python>=0.2",
+    "fugashi[unidic-lite]>=1.3",
+    "rapidocr-onnxruntime>=1.4",
+    "onnxruntime>=1.20",
+]
+# Embedding / scene-classification models. Pulls CPU torch (NOT cu128). `uv sync --group embed`.
+embed = [
+    "FlagEmbedding>=1.3",
+    "sentence-transformers>=3.3",
+    "transformers>=4.46",
+    "torch>=2.5",
+]
+
+# Default groups installed by bare `uv sync`. embed/ingest are opt-in to keep setup fast.
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+markers = [
+    "requires_db: needs a live PostgreSQL+pgvector (integration); skipped in lightweight CI",
+    "requires_models: needs ML models loaded (BGE-M3/DINOv2/SigLIP); mirrors KITS's requires_torch",
+]

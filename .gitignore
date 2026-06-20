@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Environments / tooling caches
+.venv/
+.env
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Kanomori runtime artifacts: derived media (thumbnails), KITS subprocess logs/SRTs.
+# We store derived indexes + short preview thumbnails, never redistributed source video.
+media/
+*.log
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

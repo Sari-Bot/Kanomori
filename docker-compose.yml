@@ -1,0 +1,23 @@
+# syntax: docker compose
+# Local single-machine MVP datastore: PostgreSQL 16 + pgvector. One store for vectors
+# (pgvector HNSW), lexical (tsvector/GIN), and metadata — no FAISS/Meilisearch sprawl.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: kanomori-db
+    environment:
+      POSTGRES_USER: kanomori
+      POSTGRES_PASSWORD: kanomori
+      POSTGRES_DB: kanomori
+    ports:
+      - "5433:5432"  # host 5433 to avoid clashing with a system postgres on 5432
+    volumes:
+      - kanomori_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanomori -d kanomori"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  kanomori_pgdata:
