@@ -21,3 +21,8 @@ def artifact_dir(content_hash: str) -> Path:
 def srt_path_for(content_hash: str) -> Path:
     """Deterministic path of the KITS transcript SRT for a video."""
     return artifact_dir(content_hash) / "transcript.srt"
+
+
+def audio_path_for(content_hash: str) -> Path:
+    """Deterministic path of the extracted 16kHz mono WAV for a video."""
+    return artifact_dir(content_hash) / "audio.wav"

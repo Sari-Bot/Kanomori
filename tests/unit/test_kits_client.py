@@ -70,6 +70,35 @@ def test_transcribe_runs_with_cwd_set_to_kits_dir(tmp_path: Path) -> None:
     assert captured["argv"][:3] == ["uv", "run", "kits"]
 
 
+def test_transcribe_passes_absolute_paths_to_runner(tmp_path, monkeypatch) -> None:
+    # Root cause of the e2e FileNotFoundError: KITS runs with cwd=KITS_DIR, so a relative
+    # -i/-o path resolves against KITS's cwd (not kanomori's) and KITS can't find/create it.
+    # transcribe must hand KITS absolute paths regardless of how it was called.
+    monkeypatch.chdir(tmp_path)  # so genuinely relative paths resolve under tmp_path
+    captured = {}
+
+    def fake_runner(argv, **kwargs):
+        captured["argv"] = argv
+        out_abs = Path(argv[argv.index("-o") + 1])
+        out_abs.parent.mkdir(parents=True, exist_ok=True)
+        out_abs.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+        return FakeCompleted(returncode=0)
+
+    # Genuinely relative paths (no leading slash) — the exact shape media_root="./media" yields.
+    rel_in = Path("media/in.wav")
+    rel_in.parent.mkdir(parents=True, exist_ok=True)
+    rel_in.write_bytes(b"x")
+    rel_out = Path("media/hash/out.srt")
+    assert not rel_in.is_absolute() and not rel_out.is_absolute()  # precondition
+
+    transcribe(rel_in, rel_out, kits_dir=Path("/k"), runner=fake_runner)
+
+    i_path = Path(captured["argv"][captured["argv"].index("-i") + 1])
+    o_path = Path(captured["argv"][captured["argv"].index("-o") + 1])
+    assert i_path.is_absolute(), f"-i must be absolute, got {i_path}"
+    assert o_path.is_absolute(), f"-o must be absolute, got {o_path}"
+
+
 def test_transcribe_returns_output_path_on_success(tmp_path: Path) -> None:
     out = tmp_path / "out.srt"
 

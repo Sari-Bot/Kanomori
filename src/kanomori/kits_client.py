@@ -73,6 +73,12 @@ def transcribe(
     if runner is None:
         runner = subprocess.run
 
+    # KITS runs with cwd=kits_dir, so relative -i/-o paths would resolve against KITS's cwd
+    # (not ours) and KITS can't find the audio or create the SRT. Resolve to absolute so the
+    # paths mean the same thing regardless of where each process thinks "here" is.
+    audio_path = audio_path.resolve()
+    out_srt = out_srt.resolve()
+
     argv = build_kits_argv(
         audio_path, out_srt, separate=separate, filter_game=filter_game, language=language
     )
