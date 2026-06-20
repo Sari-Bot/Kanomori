@@ -21,6 +21,11 @@ htmlcov/
 media/
 *.log
 
+# Source clips you ingest manually (inputs). Large + copyright-sensitive — never committed.
+# The folder's README is tracked (see !samples/README.md) so the layout is documented.
+samples/
+!samples/README.md
+
 # OS
 .DS_Store
 
