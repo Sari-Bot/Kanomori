@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from kanomori.ingest.stages import parse_transcript, register, transcribe
+from kanomori.ingest.stages import locate_media, parse_transcript, register, transcribe
 
 
 @dataclass
@@ -40,6 +40,7 @@ class IngestContext:
 # Stage name -> module exposing run(conn, ctx). Order matters (resumable DAG).
 STAGES: list[tuple[str, object]] = [
     ("register", register),
+    ("locate_media", locate_media),
     ("transcribe", transcribe),
     ("parse_transcript", parse_transcript),
 ]

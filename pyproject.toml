@@ -79,6 +79,9 @@ filterwarnings = [
     # test-only. Matched by message (the category is Starlette-specific) so genuine warnings
     # from our code still surface.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+    # Third-party C-extension (SWIG, via torch/onnx in the embed group) emits these at import.
+    "ignore:builtin type SwigPy.* has no __module__ attribute",
+    "ignore:builtin type swigvarlink has no __module__ attribute",
 ]
 markers = [
     "requires_db: needs a live PostgreSQL+pgvector (integration); skipped in lightweight CI",

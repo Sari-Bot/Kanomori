@@ -30,15 +30,21 @@ def media_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def fake_transcribe(monkeypatch):
-    """Patch kits_client.transcribe to drop the fixture SRT — no GPU, no real KITS."""
-    def _fake(audio_path, out_srt, **kwargs):
+    """Patch transcribe (drop fixture SRT) and locate_media (skip real ffmpeg) — no GPU, no
+    media decoding. These tests exercise pipeline orchestration, not audio extraction (that's
+    covered by test_locate_media and the end-to-end proof)."""
+    def _fake_transcribe(audio_path, out_srt, **kwargs):
         out_srt = Path(out_srt)
         out_srt.parent.mkdir(parents=True, exist_ok=True)
         out_srt.write_text(FIXTURE_SRT.read_text(encoding="utf-8"), encoding="utf-8")
         return out_srt
 
-    monkeypatch.setattr("kanomori.ingest.stages.transcribe.kits_transcribe", _fake)
-    return _fake
+    def _fake_locate(conn, ctx):
+        ctx.audio_path = ctx.media_path  # pretend extraction happened
+
+    monkeypatch.setattr("kanomori.ingest.stages.transcribe.kits_transcribe", _fake_transcribe)
+    monkeypatch.setattr("kanomori.ingest.stages.locate_media.run", _fake_locate)
+    return _fake_transcribe
 
 
 def test_register_creates_video_and_job(db_conn, media_file) -> None:
