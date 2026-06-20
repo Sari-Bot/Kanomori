@@ -74,6 +74,12 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q"
+filterwarnings = [
+    # Third-party: Starlette's TestClient warns about httpx; not our code, and TestClient is
+    # test-only. Matched by message (the category is Starlette-specific) so genuine warnings
+    # from our code still surface.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 markers = [
     "requires_db: needs a live PostgreSQL+pgvector (integration); skipped in lightweight CI",
     "requires_models: needs ML models loaded (BGE-M3/DINOv2/SigLIP); mirrors KITS's requires_torch",

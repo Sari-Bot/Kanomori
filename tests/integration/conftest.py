@@ -50,6 +50,27 @@ def _migrated() -> None:
     run()
 
 
+@pytest.fixture(autouse=True)
+def _clean_tables(_migrated):
+    """Truncate data tables before each integration test for isolation.
+
+    db_conn rolls back each test's own transaction, but tests that call conn.commit()
+    (pipeline, worker, /ingest) durably persist rows that would otherwise leak into later
+    tests and pollute dense-vector search (which always returns nearest neighbors). Truncating
+    up front guarantees a clean slate regardless of prior commits. schema_migrations is left
+    intact so the schema persists.
+    """
+    if not _db_reachable():
+        return
+    import psycopg
+
+    from kanomori.config import get_settings
+
+    with psycopg.connect(get_settings().database_url) as c:
+        c.execute("TRUNCATE videos, jobs RESTART IDENTITY CASCADE")
+        c.commit()
+
+
 @pytest.fixture
 def db_conn(_migrated):
     """A pooled, pgvector-aware connection wrapped in a rolled-back transaction."""
