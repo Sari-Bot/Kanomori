@@ -39,12 +39,21 @@ else is CPU logic, tested without video via unit tests + a **mocked KITS subproc
   - Verified: `uv sync` (core+dev, no torch) ✓; `uv run ruff check .` clean ✓;
     `uv run pytest` 5 passed ✓; pgvector container + `uv run kanomori-migrate` apply
     `0001_init.sql` ✓ (see below).
-- [ ] **Step 1 — Transcript vertical slice** (blocked by Step 0): `srt.py` (+tests), `text.py`
-  (JP normalize/tokenize via fugashi), `kits_client.py`, ingest stages register/locate_media/
-  transcribe/parse_transcript, `pipeline.py` + `worker.py`, `embed/text_embedder.py` (BGE-M3),
-  `retrieval/transcript.py` + `fusion.py` (RRF), transcript search endpoint. **Proof:**
-  `samples/2024_talk_cut.mp4` → KITS → segments in PG → `/search/transcript` returns the right
-  timestamp.
+- [x] **Step 1 — Transcript vertical slice** (done, proven end-to-end with real components):
+  `srt.py` (mirrors KITS parser), `text.py` (NFKC + fugashi tokenize), `kits_client.py`
+  (subprocess + full `.kits.log` artifact), ingest stages register/locate_media/transcribe/
+  parse_transcript, `pipeline.py` (resumable DAG) + `worker.py`, `embed/text_embedder.py`
+  (BGE-M3), `retrieval/transcript.py` + `fusion.py` (RRF), FastAPI `/search/transcript` +
+  `/ingest`. **Proof ran for real:** `samples/2024_talk_cut.mp4` → ffmpeg → KITS
+  (kotoba-whisper on MPS, 37s) → 23 segments w/ embeddings + JP tsv in PG → hybrid search
+  returns correct timestamps (冷や汗→19.0s, ライブ初参戦→35.0s, スーパーチャット→33.3s).
+  88 tests pass (incl. real-model), ruff clean.
+  - **3 bugs the real run caught that mocks missed** (see memory + commits 10f3b79, b1baf72):
+    (1) kits_client truncated KITS stderr → lost the crash; now writes full `.kits.log`.
+    (2) relative paths + `cwd=KITS_DIR` → FileNotFoundError; now resolves paths absolute.
+    (3) resumed-run context hole: transcribe fell back to raw `.mp4` (undecodable) instead of
+    the extracted wav; now uses deterministic `audio_path_for(content_hash)`. Same class as
+    the SRT-path fix — **any cross-stage artifact needs a deterministic content-hash path.**
 - [ ] **Step 2 — Frames + OCR + image** (blocked by Step 1)
 - [ ] **Step 3 — Scene-aware rerank + merge** (blocked by Step 2)
 - [ ] **Step 4 — Minimal UI (Jinja2 + htmx)** (blocked by Step 3)
