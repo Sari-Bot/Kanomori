@@ -111,3 +111,50 @@ def test_transcribe_raises_when_output_empty(tmp_path: Path) -> None:
 
     with pytest.raises(KitsError):
         transcribe(tmp_path / "in.mp3", out, kits_dir=Path("/k"), runner=fake_runner)
+
+
+def test_transcribe_writes_log_artifact_on_success(tmp_path: Path) -> None:
+    # The full KITS stdout/stderr must be captured to a log file alongside the SRT, so a
+    # crash is diagnosable after the fact (the plan requires a log artifact).
+    out = tmp_path / "out.srt"
+
+    def fake_runner(argv, **kwargs):
+        out.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+        return FakeCompleted(returncode=0, stdout="loaded model\n23 cues", stderr="a warning")
+
+    transcribe(tmp_path / "in.mp3", out, kits_dir=Path("/k"), runner=fake_runner)
+    log = tmp_path / "out.kits.log"
+    assert log.is_file()
+    content = log.read_text(encoding="utf-8")
+    assert "23 cues" in content
+    assert "a warning" in content
+
+
+def test_transcribe_writes_full_untruncated_stderr_to_log_on_failure(tmp_path: Path) -> None:
+    # The exception message is bounded, but the LOG must hold the complete stderr — this is
+    # exactly the evidence that was lost when the real end-to-end transcribe failed.
+    long_trace = "Traceback...\n" + "X" * 5000 + "\nFinalError: boom"
+
+    def fake_runner(argv, **kwargs):
+        return FakeCompleted(returncode=1, stderr=long_trace)
+
+    with pytest.raises(KitsError):
+        transcribe(
+            tmp_path / "in.mp3", tmp_path / "out.srt", kits_dir=Path("/k"), runner=fake_runner
+        )
+
+    log = tmp_path / "out.kits.log"
+    assert log.is_file()
+    content = log.read_text(encoding="utf-8")
+    assert "FinalError: boom" in content  # the tail that truncation would have dropped
+    assert len(content) >= 5000
+
+
+def test_transcribe_error_message_references_log_path(tmp_path: Path) -> None:
+    def fake_runner(argv, **kwargs):
+        return FakeCompleted(returncode=1, stderr="some failure")
+
+    with pytest.raises(KitsError, match="out.kits.log"):
+        transcribe(
+            tmp_path / "in.mp3", tmp_path / "out.srt", kits_dir=Path("/k"), runner=fake_runner
+        )

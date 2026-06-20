@@ -85,12 +85,26 @@ def transcribe(
         text=True,
         timeout=timeout,
     )
+
+    # Always persist the full, untruncated KITS output next to the SRT. KITS crashes deep in a
+    # transformers/torch stack with long tracebacks; without this artifact the actual cause is
+    # lost (the exception message is necessarily bounded). The log is the diagnosis record.
+    log_path = out_srt.with_suffix(".kits.log")
+    log_path.write_text(
+        f"$ {' '.join(argv)}\n(cwd={kits_dir})\n"
+        f"--- returncode: {result.returncode} ---\n"
+        f"--- stdout ---\n{result.stdout or ''}\n"
+        f"--- stderr ---\n{result.stderr or ''}\n",
+        encoding="utf-8",
+    )
+
     if result.returncode != 0:
         raise KitsError(
-            f"kits subtitle exited {result.returncode}: {(result.stderr or '').strip()[:500]}"
+            f"kits subtitle exited {result.returncode} "
+            f"(full log: {log_path}): {(result.stderr or '').strip()[:500]}"
         )
     if not out_srt.is_file():
-        raise KitsError(f"kits produced no output at {out_srt}")
+        raise KitsError(f"kits produced no output at {out_srt} (log: {log_path})")
     if not out_srt.read_text(encoding="utf-8").strip():
-        raise KitsError(f"kits produced an empty SRT at {out_srt}")
+        raise KitsError(f"kits produced an empty SRT at {out_srt} (log: {log_path})")
     return out_srt
