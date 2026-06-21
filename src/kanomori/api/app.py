@@ -17,7 +17,7 @@ import hashlib
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from kanomori.db import close_pool, connection
 from kanomori.models import (
@@ -27,9 +27,13 @@ from kanomori.models import (
     SearchHit,
     SearchResponse,
 )
-from kanomori.retrieval import transcript
+from kanomori.retrieval import screenshot, transcript
 
 _embedder = None
+_image_embedder = None
+_ocr_reader = None
+SCREENSHOT_FILE = File(...)
+SCREENSHOT_K = Form(10)
 
 
 def get_embedder():
@@ -44,6 +48,24 @@ def get_embedder():
 
         _embedder = BGEEmbedder()
     return _embedder
+
+
+def get_image_embedder():
+    """Return the process-wide image embedder, constructing it only for screenshot search."""
+    global _image_embedder
+    if _image_embedder is None:
+        from kanomori.embed.image_embedder import DINOv2Embedder
+
+        _image_embedder = DINOv2Embedder()
+    return _image_embedder
+
+
+def get_ocr_reader():
+    """Return the process-wide upload OCR reader for screenshot search."""
+    global _ocr_reader
+    if _ocr_reader is None:
+        _ocr_reader = screenshot.UploadOcrReader()
+    return _ocr_reader
 
 
 @asynccontextmanager
@@ -66,6 +88,31 @@ def create_app() -> FastAPI:
         hits = [
             SearchHit(
                 video_id=c.video_id, ts_sec=c.ts_sec, score=c.raw_score or 0.0,
+                why={c.modality.value: c.raw_score or 0.0},
+            )
+            for c in cands[:k]
+        ]
+        return SearchResponse(hits=hits)
+
+    @app.post("/search/screenshot", response_model=SearchResponse)
+    async def search_screenshot(
+        file: UploadFile = SCREENSHOT_FILE,
+        k: int = SCREENSHOT_K,
+    ) -> SearchResponse:
+        image = await file.read()
+        with connection() as conn:
+            cands = screenshot.candidates(
+                conn,
+                image,
+                get_image_embedder(),
+                ocr_reader=get_ocr_reader(),
+                k=k,
+            )
+        hits = [
+            SearchHit(
+                video_id=c.video_id,
+                ts_sec=c.ts_sec,
+                score=c.raw_score or 0.0,
                 why={c.modality.value: c.raw_score or 0.0},
             )
             for c in cands[:k]

@@ -67,7 +67,10 @@ def _clean_tables(_migrated):
     from kanomori.config import get_settings
 
     with psycopg.connect(get_settings().database_url) as c:
-        c.execute("TRUNCATE videos, jobs RESTART IDENTITY CASCADE")
+        c.execute(
+            "TRUNCATE videos, jobs, frames, ocr_segments, scene_segments "
+            "RESTART IDENTITY CASCADE"
+        )
         c.commit()
 
 

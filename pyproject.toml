@@ -56,6 +56,7 @@ embed = [
     "sentence-transformers>=3.3",
     "transformers>=4.46",
     "torch>=2.5",
+    "torchvision>=0.27.1",
 ]
 
 # Default groups installed by bare `uv sync`. embed/ingest are opt-in to keep setup fast.
