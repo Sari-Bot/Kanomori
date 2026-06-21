@@ -26,3 +26,15 @@ def srt_path_for(content_hash: str) -> Path:
 def audio_path_for(content_hash: str) -> Path:
     """Deterministic path of the extracted 16kHz mono WAV for a video."""
     return artifact_dir(content_hash) / "audio.wav"
+
+
+def frame_dir_for(content_hash: str) -> Path:
+    """Directory holding short-preview frame thumbnails for a video."""
+    return artifact_dir(content_hash) / "frames"
+
+
+def frame_path_for(content_hash: str, ts_sec: float) -> Path:
+    """Deterministic JPEG thumbnail path for a timestamp, rounded to milliseconds."""
+    total_ms = max(0, round(ts_sec * 1000))
+    seconds, millis = divmod(total_ms, 1000)
+    return frame_dir_for(content_hash) / f"frame_{seconds:06d}_{millis:03d}.jpg"

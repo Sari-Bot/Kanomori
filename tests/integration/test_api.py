@@ -7,7 +7,15 @@ path. /ingest enqueues a job row (the worker, tested separately, would run it).
 
 from __future__ import annotations
 
+import hashlib
+from io import BytesIO
+
+import numpy as np
 import pytest
+from pgvector.psycopg import register_vector
+
+from kanomori.embed.phash import to_signed_bigint
+from kanomori.text import tokenize_for_fts
 
 pytestmark = pytest.mark.requires_db
 
@@ -103,3 +111,62 @@ def test_ingest_status_reports_queued(client, tmp_path) -> None:
 def test_ingest_status_404_for_unknown_job(client) -> None:
     resp = client.get("/ingest/99999999")
     assert resp.status_code == 404
+
+
+class FakeImageEmbedder:
+    def embed_image_bytes(self, data: bytes) -> np.ndarray:
+        seed = int.from_bytes(hashlib.sha256(data).digest()[:8], "big")
+        rng = np.random.default_rng(seed)
+        v = rng.standard_normal(768).astype(np.float32)
+        v /= np.linalg.norm(v) or 1.0
+        return v
+
+
+class FakeOcrReader:
+    def text_from_image_bytes(self, data: bytes) -> str:
+        return "入口の看板"
+
+
+def test_search_screenshot_returns_visual_timestamp(client, db_conn, monkeypatch) -> None:
+    from PIL import Image
+
+    from kanomori.api import app as app_module
+
+    buf = BytesIO()
+    Image.new("RGB", (8, 8), color=(200, 120, 20)).save(buf, format="PNG")
+    image = buf.getvalue()
+    image_embedder = FakeImageEmbedder()
+    monkeypatch.setattr(app_module, "get_image_embedder", lambda: image_embedder)
+    monkeypatch.setattr(app_module, "get_ocr_reader", lambda: FakeOcrReader())
+    register_vector(db_conn)
+    vid = db_conn.execute(
+        "INSERT INTO videos (content_hash, title) VALUES ('api-screenhash', 'screen') RETURNING id"
+    ).fetchone()[0]
+    frame_id = db_conn.execute(
+        """
+        INSERT INTO frames (video_id, ts_sec, frame_path, phash, embedding)
+        VALUES (%s, 31.0, 'media/api-screenhash/frames/frame_000031_000.jpg', %s, %s)
+        RETURNING id
+        """,
+        (vid, to_signed_bigint(7), image_embedder.embed_image_bytes(image)),
+    ).fetchone()[0]
+    db_conn.execute(
+        """
+        INSERT INTO ocr_segments (video_id, frame_id, ts_sec, text, confidence, bbox, tsv)
+        VALUES (%s, %s, 31.0, '入口の看板', 0.9, '{}'::jsonb, to_tsvector('simple', %s))
+        """,
+        (vid, frame_id, tokenize_for_fts("入口の看板")),
+    )
+    db_conn.commit()
+
+    resp = client.post(
+        "/search/screenshot",
+        files={"file": ("screen.jpg", image, "image/jpeg")},
+        data={"k": "5"},
+    )
+
+    assert resp.status_code == 200
+    hits = resp.json()["hits"]
+    assert hits
+    assert hits[0]["video_id"] == vid
+    assert hits[0]["ts_sec"] == pytest.approx(31.0)
