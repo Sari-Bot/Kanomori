@@ -1,0 +1,48 @@
+{
+  "sample": "samples/2024_talk_cut.mp4",
+  "top_k": 5,
+  "transcript_segments": [
+    {
+      "start_sec": 18.5,
+      "end_sec": 22.5,
+      "text": "冷や汗が出ました"
+    },
+    {
+      "start_sec": 33.3,
+      "end_sec": 35.0,
+      "text": "スーパーチャットありがとう"
+    },
+    {
+      "start_sec": 35.0,
+      "end_sec": 39.0,
+      "text": "ライブ初参戦の人もありがとう"
+    }
+  ],
+  "transcript_queries": [
+    {
+      "name": "cold sweat mention",
+      "query": "冷や汗",
+      "expected_ts_sec": 19.0,
+      "tolerance_sec": 4.0
+    },
+    {
+      "name": "first live attendance",
+      "query": "ライブ初参戦",
+      "expected_ts_sec": 35.0,
+      "tolerance_sec": 4.0
+    },
+    {
+      "name": "superchat thanks",
+      "query": "スーパーチャットありがとう",
+      "expected_ts_sec": 33.3,
+      "tolerance_sec": 4.0
+    }
+  ],
+  "screenshot_queries": [
+    {
+      "name": "first extracted frame",
+      "frame_index": 0,
+      "tolerance_sec": 1.0
+    }
+  ]
+}
