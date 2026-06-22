@@ -20,14 +20,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from kanomori.db import close_pool, connection
-from kanomori.models import (
-    IngestRequest,
-    IngestResponse,
-    JobStatusResponse,
-    SearchHit,
-    SearchResponse,
-)
-from kanomori.retrieval import screenshot, transcript
+from kanomori.models import IngestRequest, IngestResponse, JobStatusResponse, SearchResponse
+from kanomori.retrieval import merge, screenshot, transcript
 
 _embedder = None
 _image_embedder = None
@@ -85,13 +79,7 @@ def create_app() -> FastAPI:
         k = (req or {}).get("k", 10)
         with connection() as conn:
             cands = transcript.candidates(conn, query, get_embedder(), k=k)
-        hits = [
-            SearchHit(
-                video_id=c.video_id, ts_sec=c.ts_sec, score=c.raw_score or 0.0,
-                why={c.modality.value: c.raw_score or 0.0},
-            )
-            for c in cands[:k]
-        ]
+            hits = merge.merge_from_db(conn, cands, k=k)
         return SearchResponse(hits=hits)
 
     @app.post("/search/screenshot", response_model=SearchResponse)
@@ -108,15 +96,7 @@ def create_app() -> FastAPI:
                 ocr_reader=get_ocr_reader(),
                 k=k,
             )
-        hits = [
-            SearchHit(
-                video_id=c.video_id,
-                ts_sec=c.ts_sec,
-                score=c.raw_score or 0.0,
-                why={c.modality.value: c.raw_score or 0.0},
-            )
-            for c in cands[:k]
-        ]
+            hits = merge.merge_from_db(conn, cands, k=k)
         return SearchResponse(hits=hits)
 
     @app.post("/ingest", response_model=IngestResponse)
