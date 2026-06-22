@@ -807,6 +807,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "flagembedding" },
+    { name = "fugashi" },
     { name = "jinja2" },
     { name = "numpy" },
     { name = "pgvector" },
@@ -814,6 +816,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "torchvision" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -843,6 +846,8 @@ ingest = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "flagembedding", specifier = ">=1.4.0" },
+    { name = "fugashi", specifier = ">=1.5.2" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pgvector", specifier = ">=0.3.6" },
@@ -850,6 +855,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "python-multipart", specifier = ">=0.0.12" },
+    { name = "torchvision", specifier = ">=0.27.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
 
