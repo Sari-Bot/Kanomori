@@ -9,10 +9,12 @@ exercise register -> ... -> parse_transcript against the live pgvector container
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from kanomori.ingest import pipeline
+from kanomori.ingest.stages import register
 
 pytestmark = pytest.mark.requires_db
 
@@ -141,3 +143,44 @@ def test_parse_transcript_reingest_replaces_not_appends(
         "SELECT count(*) FROM transcript_segments WHERE video_id = %s", (vid,)
     ).fetchone()[0]
     assert count == 4  # replaced, not 8
+
+
+def test_resume_skips_done_transcribe_and_runs_pending_later_stage(
+    db_conn, media_file, fake_embedder, monkeypatch
+) -> None:
+    monkeypatch.setattr(pipeline, "make_embedder", lambda: fake_embedder)
+    ctx = pipeline.IngestContext(media_path=str(media_file))
+    pipeline.run_stage(db_conn, "register", ctx)
+    db_conn.execute(
+        """
+        UPDATE jobs
+        SET stage_status = jsonb_build_object(
+                'transcribe', jsonb_build_object('state', 'done')
+            )
+        WHERE content_hash = %s
+        """,
+        (ctx.content_hash,),
+    )
+    db_conn.commit()
+
+    calls: list[str] = []
+
+    def fail_transcribe(conn, ctx):
+        raise AssertionError("transcribe should be skipped when already marked done")
+
+    def run_frames(conn, ctx):
+        calls.append("frames")
+
+    monkeypatch.setattr(
+        pipeline,
+        "STAGES",
+        [
+            ("register", register),
+            ("transcribe", SimpleNamespace(run=fail_transcribe)),
+            ("frames", SimpleNamespace(run=run_frames)),
+        ],
+    )
+
+    pipeline.run_full(db_conn, pipeline.IngestContext(media_path=str(media_file)))
+
+    assert calls == ["frames"]
