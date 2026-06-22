@@ -22,31 +22,47 @@ a subprocess — never imported. Kanomori does storage + retrieval.
 
 ## 2. Current state — what's built
 
-**Git on `main`:** HEAD = `1fb7710` (`test: add retrieval eval harness`).
+**Git on `main`:** HEAD = `cbed83b` (`Step 5 hardening: aggregate eval metrics + worker
+attempts cap`). **Phase-1 MVP is complete — all of Steps 0–5 are done.**
 
-Latest main history:
+Latest main history (most recent first):
 
 ```
+cbed83b Step 5 hardening: aggregate eval metrics + worker attempts cap (TDD)
+568edc9 Step 4: result-detail endpoint + minimal Jinja2/htmx UI (TDD)
+e6cc48c Update GPT handoff: sync to current main (Steps 0-3 + eval done)
 1fb7710 test: add retrieval eval harness
 e47b175 Merge branch 'feature/visual-e2e-validation'
-d996318 test: add visual real-model e2e smoke
 330ba37 Merge feature/step3-scene-aware-merge
-23f371a feat: add scene-aware result merge
 fa18626 Merge feature/step2-visual-search
-9528d61 feat: add visual screenshot search
 1874ff4 Update HANDOFF: Step 1 done, proven end-to-end
 ```
 
-The `feature/visual-e2e-validation` branch is now **merged** (`e47b175`), and a retrieval
-eval harness has landed on top (`1fb7710`). No unmerged feature branches remain.
+No unmerged feature branches remain.
 
 **Main worktree status:** `main` has unrelated pre-existing local working-tree changes:
 deleted `HANDOFF.md`, deleted `kanomori_project_white_paper.md` (both still present in HEAD —
 the deletions are unstaged), and untracked `HANDOFF_TO_GPT.md`. Do not stage or revert those
 unless the user explicitly asks.
 
-**Steps completed on `main`:** Step 0, Step 1, Step 2, Step 3, plus an eval-harness baseline
-(part of Step 5). Step 4 (minimal UI) and the rest of Step 5 (hardening) remain.
+**Steps completed on `main`:** **Steps 0–5, all done.** Step 0 (scaffolding), Step 1
+(transcript vertical slice), Step 2 (frames/OCR/scene/image + screenshot search), Step 3
+(scene-aware merge), Step 4 (result-detail endpoint + Jinja2/htmx UI), Step 5 (eval harness
+with aggregate Top-1/Top-5/MRR/timestamp-error metrics + worker MAX_ATTEMPTS retry cap).
+
+**Full suite verified this session:** `uv run pytest` → **130 passed** (includes the 2
+`requires_models` real-model tests: BGE-M3 + DINOv2 + SigLIP against the live DB and sample
+clip, with `KANOMORI_VISUAL_E2E_SAMPLE` set). `uv run ruff check .` → clean. No warnings.
+
+**Step 4 done:** `GET /result/{video_id}?ts=` (JSON moment detail) + `retrieval/result.py`
+(`result_detail`: video + source link, nearby transcript, preview frames, OCR, scene_type).
+Server-rendered UI (Jinja2 + htmx, no build step) at `src/kanomori/web/templates/`: `GET /`
+(search forms), `POST /ui/search/{transcript,screenshot}` (htmx result-card fragment), `GET
+/ui/result/{id}` (moment detail). `/media` mounted via StaticFiles (preview thumbnails only).
+
+**Step 5 done:** `evaluation.aggregate_metrics()` (Top-1/Top-5/MRR/mean-timestamp-error;
+Top-5 is the §13 headline) + `worker.MAX_ATTEMPTS=3` (failed jobs stop being re-claimed once
+they exhaust retries; below the cap they still resume via per-stage status).
 
 **Step 2 done:** visual schema + frame extraction + OCR + SigLIP scene classification +
 DINOv2/pHash frame indexing + `/search/screenshot`.
@@ -252,51 +268,35 @@ Follow `retrieval/transcript.py`'s pattern:
   **Table isolation** is handled by the autouse `_clean_tables` fixture (TRUNCATE before
   each test, because committing tests leak rows past rollback-based isolation).
 
-## 6. Next step: fix torchvision gap, then Step 4 (minimal UI)
+## 6. Status: Phase-1 MVP complete — what's left is Phase 3+ and polish
 
-### Immediate fix (do this first — it's blocking visual validation)
+**All of Steps 0–5 are done and verified (130 tests pass, real models included, ruff clean).**
+The transcript + screenshot search, scene-aware merge, result-detail endpoint, Jinja2/htmx UI,
+eval metrics, and worker retry cap are all in. There is no remaining Phase-1 work.
 
-The `embed` dependency group is missing **torchvision**, which DINOv2's `AutoImageProcessor`
-requires. Right now the 2 `requires_models` visual/eval tests error at import. This is the
-first thing to fix before trusting any visual end-to-end claim.
+What a next session could pick up, in rough priority order:
 
-```bash
-cd /Users/lb/Documents/Code/kanomori
-# Add torchvision to the [dependency-groups] embed list in pyproject.toml, then:
-uv sync --group embed --group ingest
-# Confirm DINOv2/SigLIP load and the real-model visual + eval tests pass:
-KANOMORI_VISUAL_E2E_SAMPLE=/Users/lb/Documents/Code/kanomori/samples/2024_talk_cut.mp4 \
-  uv run pytest -m requires_models -q
-```
-(TDD note: the failing `requires_models` tests already exist and currently error — adding
-torchvision is the minimal change to turn them green. Watch them go red→green.)
+1. **A real labelled eval set.** The eval harness + aggregate metrics (Top-1/Top-5/MRR/
+   timestamp-error) exist and are unit-tested, but only one sample clip is wired. The white
+   paper §13 calls for 100 transcript + 100 screenshot queries to actually *measure* retrieval
+   quality (Top-5 is the headline). Build `eval/eval_queries.jsonl` against real ingested
+   streams and run `aggregate_metrics` over it. **Until this exists, retrieval quality is
+   unmeasured** — the code paths work, but the gaming/karaoke ranking profiles in particular
+   are exercised only by the single chatting clip.
 
-### Then: Step 4 — minimal UI (the remaining unbuilt step)
+2. **Write real run commands into the repo `CLAUDE.md`.** The project `CLAUDE.md` still says
+   "no commands exist yet." Now they do (`uv run kanomori-migrate`, `kanomori-worker`,
+   `uvicorn kanomori.api.app:app`, the test invocations). Update it per its own
+   "When implementation begins" instructions.
 
-Steps 0–3 + the eval-harness baseline are done. The transcript and screenshot search APIs
-work (`POST /search/transcript`, `POST /search/screenshot`), and `retrieval/merge.py` already
-returns scene-aware `SearchHit{video_id, ts_sec, score, scene_type, why}`. What's missing is a
-human-facing UI.
+3. **Phase 3 — audio snippet / karaoke search.** Out of Phase-1 scope by design.
+   `Modality.AUDIO` is reserved and weighted `0` in the scene profiles. Needs its own design
+   pass: `audio_fingerprints` storage, the cover-vs-same-recording distinction (see
+   ARCHITECTURE.md / the original brainstorm), query representation, and eval data.
 
-Per the approved plan, build **server-rendered Jinja2 + htmx, no SPA, no build step**:
-- **Search page** — a query box (text) + an image upload (screenshot), posting to the existing
-  search endpoints.
-- **Results** — cards showing thumbnail / timestamp / transcript snippet / "why" badges (the
-  `why` dict from `SearchHit`) / source link.
-- **Result detail** — `GET /result/{video_id}?ts=` returning the moment with nearby transcript
-  (±window via `(video_id, start_sec)` index), preview frames (from `frames`), OCR context,
-  and a jump-to-source link. This endpoint does **not exist yet** — add it.
-- Mount frame thumbnails via FastAPI `StaticFiles` from `MEDIA_ROOT`. Keep previews short;
-  never serve source video (copyright invariant #8).
-- `jinja2` is already a core dep; `python-multipart` (for the screenshot upload) is too.
-
-### After Step 4: rest of Step 5 (hardening), then audio is a separate design
-
-The eval harness exists but runs on one sample (proves code paths, not retrieval quality).
-Remaining Step-5 hardening: a real labelled eval set (white paper §13: 100 transcript + 100
-screenshot queries, Top-5 as headline), worker retry/attempts-cap exercise, and writing the
-real run commands into the repo `CLAUDE.md`. Audio snippet / karaoke search (Phase 3) stays
-out — `Modality.AUDIO` remains reserved and weight `0` in Phase-1 profiles; it needs its own
+4. **Polish:** end-to-end UI smoke against a browser; thumbnail-path robustness in
+   `result.html` (the `frame_path.split('media/')` hack assumes a `media/` segment); auth on
+   `/ingest` before any non-local deploy (invariant in §3 / ARCHITECTURE.md security note).
 design pass for `audio_fingerprints` storage, query representation, and eval data.
 
 ## 7. Test patterns (quick reference)
