@@ -17,21 +17,30 @@ import time
 from kanomori.db import connection
 from kanomori.ingest.pipeline import IngestContext, run_full
 
+# A job is retried on failure (per-stage status makes the retry resume, not restart), but a
+# permanently-broken job must not loop forever. Once a failed job reaches MAX_ATTEMPTS it is
+# left in 'failed' and no longer claimed; an operator can reset attempts to requeue it.
+MAX_ATTEMPTS = 3
+
 
 def claim_one(conn) -> dict | None:
-    """Lock and claim the oldest queued/failed job; mark it running. None if none available.
+    """Lock and claim the oldest eligible queued/failed job; mark it running. None if none.
 
-    Returns a dict with the job id and the request fields needed to build an IngestContext.
+    Eligible = queued, or failed with attempts below MAX_ATTEMPTS (so a permanently-failing
+    job stops being re-claimed once it exhausts its retries). Returns a dict with the job id
+    and the request fields needed to build an IngestContext.
     """
     row = conn.execute(
         """
         SELECT id, content_hash, stage_status -> 'request' AS request
         FROM jobs
-        WHERE status IN ('queued', 'failed')
+        WHERE status = 'queued'
+           OR (status = 'failed' AND attempts < %s)
         ORDER BY id
         FOR UPDATE SKIP LOCKED
         LIMIT 1
-        """
+        """,
+        (MAX_ATTEMPTS,),
     ).fetchone()
     if row is None:
         return None

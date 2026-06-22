@@ -98,3 +98,28 @@ def test_run_one_marks_failed_and_records_error(db_conn, media_file, monkeypatch
 def test_claim_and_run_returns_false_when_idle(db_conn) -> None:
     db_conn.execute("UPDATE jobs SET status='complete' WHERE status IN ('queued','failed')")
     assert worker.claim_and_run_one(db_conn) is False
+
+
+def test_claim_skips_failed_job_at_attempts_cap(db_conn, media_file) -> None:
+    # A job that has already failed MAX_ATTEMPTS times must not be re-claimed (no infinite
+    # retry loop on a permanently-broken job).
+    db_conn.execute("UPDATE jobs SET status='complete' WHERE status IN ('queued','failed')")
+    job_id = _enqueue(db_conn, str(media_file))
+    db_conn.execute(
+        "UPDATE jobs SET status='failed', attempts=%s WHERE id=%s",
+        (worker.MAX_ATTEMPTS, job_id),
+    )
+    assert worker.claim_one(db_conn) is None
+
+
+def test_claim_still_picks_failed_job_below_attempts_cap(db_conn, media_file) -> None:
+    # A failed job with attempts remaining is still eligible for retry (resume).
+    db_conn.execute("UPDATE jobs SET status='complete' WHERE status IN ('queued','failed')")
+    job_id = _enqueue(db_conn, str(media_file))
+    db_conn.execute(
+        "UPDATE jobs SET status='failed', attempts=%s WHERE id=%s",
+        (worker.MAX_ATTEMPTS - 1, job_id),
+    )
+    claimed = worker.claim_one(db_conn)
+    assert claimed is not None and claimed["id"] == job_id
+

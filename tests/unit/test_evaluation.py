@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from kanomori.models import SearchHit
 
 
@@ -68,3 +70,62 @@ def test_evaluate_hit_reports_failure_summary() -> None:
     assert result.hit_rank is None
     assert "case" in result.summary()
     assert "expected=9.500s" in result.summary()
+
+
+def _hit(name, *, passed, rank=None, error=None):
+    from kanomori.evaluation import EvalHitResult
+
+    return EvalHitResult(
+        name=name, expected_ts_sec=0.0, tolerance_sec=1.0, top_k=5,
+        passed=passed, hit_rank=rank, hit_ts_sec=None, timestamp_error_sec=error,
+    )
+
+
+def test_aggregate_metrics_top1_and_top5_accuracy() -> None:
+    from kanomori.evaluation import aggregate_metrics
+
+    results = [
+        _hit("a", passed=True, rank=1, error=0.1),   # top-1 and top-5
+        _hit("b", passed=True, rank=3, error=0.2),   # top-5 only
+        _hit("c", passed=False),                     # miss
+        _hit("d", passed=True, rank=5, error=0.5),   # top-5 only
+    ]
+    m = aggregate_metrics(results)
+    assert m.count == 4
+    assert m.top1_accuracy == pytest.approx(1 / 4)   # only "a" is rank 1
+    assert m.top5_accuracy == pytest.approx(3 / 4)   # a, b, d
+
+
+def test_aggregate_metrics_mrr_uses_reciprocal_rank() -> None:
+    from kanomori.evaluation import aggregate_metrics
+
+    results = [
+        _hit("a", passed=True, rank=1, error=0.0),   # 1/1
+        _hit("b", passed=True, rank=2, error=0.0),   # 1/2
+        _hit("c", passed=False),                     # 0
+    ]
+    m = aggregate_metrics(results)
+    assert m.mrr == pytest.approx((1.0 + 0.5 + 0.0) / 3)
+
+
+def test_aggregate_metrics_mean_timestamp_error_over_hits_only() -> None:
+    from kanomori.evaluation import aggregate_metrics
+
+    results = [
+        _hit("a", passed=True, rank=1, error=0.2),
+        _hit("b", passed=True, rank=2, error=0.4),
+        _hit("c", passed=False),                     # excluded from error mean
+    ]
+    m = aggregate_metrics(results)
+    assert m.mean_timestamp_error_sec == pytest.approx(0.3)
+
+
+def test_aggregate_metrics_empty_is_safe() -> None:
+    from kanomori.evaluation import aggregate_metrics
+
+    m = aggregate_metrics([])
+    assert m.count == 0
+    assert m.top1_accuracy == 0.0
+    assert m.top5_accuracy == 0.0
+    assert m.mrr == 0.0
+    assert m.mean_timestamp_error_sec is None
