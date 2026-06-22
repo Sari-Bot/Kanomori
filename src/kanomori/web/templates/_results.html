@@ -1,0 +1,17 @@
+{# HTML fragment: result cards, swapped into #results by htmx. #}
+{% if hits %}
+  {% for hit in hits %}
+  <div class="card">
+    <div>
+      <span class="ts">{{ '%.1f'|format(hit.ts_sec) }}s</span>
+      {% if hit.scene_type %}<span class="badge">{{ hit.scene_type }}</span>{% endif %}
+      {% for modality in hit.why.keys() %}<span class="badge">{{ modality }}</span>{% endfor %}
+      <a href="/ui/result/{{ hit.video_id }}?ts={{ hit.ts_sec }}">open moment →</a>
+    </div>
+    {% if hit.snippet %}<div>{{ hit.snippet }}</div>{% endif %}
+    <div class="meta">video #{{ hit.video_id }} · score {{ '%.4f'|format(hit.score) }}</div>
+  </div>
+  {% endfor %}
+{% else %}
+  <p class="empty">No matches. Try a different fragment.</p>
+{% endif %}

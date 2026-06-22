@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.title or "moment" }} @ {{ '%.1f'|format(detail.ts_sec) }}s — Kanomori{% endblock %}
+{% block content %}
+<p><a href="/">← back to search</a></p>
+
+<div class="card">
+  <h2>{{ detail.title or "Untitled stream" }}</h2>
+  <div class="meta">
+    <span class="ts">{{ '%.1f'|format(detail.ts_sec) }}s</span>
+    {% if detail.scene_type %}<span class="badge">{{ detail.scene_type }}</span>{% endif %}
+    {% if detail.source_url %}· <a href="{{ detail.source_url }}" rel="noopener">source ↗</a>{% endif %}
+  </div>
+</div>
+
+{% if detail.preview_frames %}
+<h3>Preview frames</h3>
+<div class="frame-strip">
+  {% for f in detail.preview_frames %}
+    <figure>
+      <img src="/media/{{ f.frame_path.split('media/')[-1] }}" alt="frame at {{ f.ts_sec }}s"
+           loading="lazy">
+      <figcaption class="meta">{{ '%.1f'|format(f.ts_sec) }}s</figcaption>
+    </figure>
+  {% endfor %}
+</div>
+{% endif %}
+
+<h3>Nearby transcript</h3>
+{% if detail.nearby_transcript %}
+  {% for t in detail.nearby_transcript %}
+    <div class="card">
+      <span class="ts">{{ '%.1f'|format(t.start_sec) }}s</span> {{ t.text }}
+    </div>
+  {% endfor %}
+{% else %}
+  <p class="empty">No transcript near this moment.</p>
+{% endif %}
+
+{% if detail.ocr_context %}
+<h3>On-screen text (OCR)</h3>
+{% for o in detail.ocr_context %}
+  <div class="card meta"><span class="ts">{{ '%.1f'|format(o.ts_sec) }}s</span> {{ o.text }}</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

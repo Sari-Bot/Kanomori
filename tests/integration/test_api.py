@@ -188,3 +188,22 @@ def test_search_screenshot_returns_visual_timestamp(client, db_conn, monkeypatch
     assert hits
     assert hits[0]["video_id"] == vid
     assert hits[0]["ts_sec"] == pytest.approx(31.0)
+
+
+def test_result_endpoint_returns_moment_detail(client, seeded) -> None:
+    # seeded has transcript segments at 0/5/10s for video `seeded`.
+    resp = client.get(f"/result/{seeded}", params={"ts": 5.0})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["video_id"] == seeded
+    assert body["ts_sec"] == pytest.approx(5.0)
+    assert body["source_url"] == "https://example/v"
+    # nearby transcript should include the segment at 5s
+    texts = [t["text"] for t in body["nearby_transcript"]]
+    assert "大学で英語を勉強していました" in texts
+
+
+def test_result_endpoint_404_for_unknown_video(client) -> None:
+    resp = client.get("/result/99999999", params={"ts": 1.0})
+    assert resp.status_code == 404
+

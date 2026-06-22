@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<form hx-post="/ui/search/transcript" hx-target="#results" hx-swap="innerHTML">
+  <input type="text" name="query" placeholder="セリフの断片・歌詞・記憶… (transcript fragment)" autofocus>
+  <input type="hidden" name="k" value="10">
+  <button type="submit">Search transcript</button>
+</form>
+
+<form action="/ui/search/screenshot" method="post" enctype="multipart/form-data"
+      hx-post="/ui/search/screenshot" hx-target="#results" hx-swap="innerHTML"
+      hx-encoding="multipart/form-data">
+  <input type="file" name="file" accept="image/*">
+  <input type="hidden" name="k" value="10">
+  <button type="submit">Search screenshot</button>
+</form>
+
+<div id="results"></div>
+{% endblock %}

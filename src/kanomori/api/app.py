@@ -16,12 +16,20 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
+from kanomori.config import get_settings
 from kanomori.db import close_pool, connection
 from kanomori.models import IngestRequest, IngestResponse, JobStatusResponse, SearchResponse
 from kanomori.retrieval import merge, screenshot, transcript
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "web" / "templates"
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 _embedder = None
 _image_embedder = None
@@ -133,7 +141,85 @@ def create_app() -> FastAPI:
             stage_status=row[2] or {}, error=row[3],
         )
 
+    @app.get("/result/{video_id}")
+    def result(video_id: int, ts: float = 0.0):
+        """Moment-detail view: video + source link, nearby transcript, preview frames, OCR,
+        scene_type at the timestamp. 404 if the video is unknown."""
+        from dataclasses import asdict
+
+        from kanomori.retrieval.result import result_detail
+
+        with connection() as conn:
+            detail = result_detail(conn, video_id, ts)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="video not found")
+        return asdict(detail)
+
+    # --- Server-rendered UI (Jinja2 + htmx) -------------------------------------------
+    _register_ui(app)
+
+    # Serve derived media (short preview thumbnails only — never source video).
+    media_root = Path(get_settings().media_root)
+    media_root.mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=str(media_root)), name="media")
+
     return app
+
+
+def _hit_snippet(conn, video_id: int, ts_sec: float) -> str | None:
+    """Best transcript text at/around a hit's timestamp, for display on a result card."""
+    row = conn.execute(
+        "SELECT text FROM transcript_segments "
+        "WHERE video_id = %s ORDER BY abs(start_sec - %s) LIMIT 1",
+        (video_id, ts_sec),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _register_ui(app: FastAPI) -> None:
+    @app.get("/", response_class=HTMLResponse)
+    def index(request: Request):
+        return templates.TemplateResponse(request, "index.html")
+
+    @app.post("/ui/search/transcript", response_class=HTMLResponse)
+    def ui_search_transcript(request: Request, query: str = Form(""), k: int = Form(10)):
+        hits_view: list[dict] = []
+        if query.strip():
+            with connection() as conn:
+                cands = transcript.candidates(conn, query, get_embedder(), k=k)
+                hits = merge.merge_from_db(conn, cands, k=k)
+                for h in hits:
+                    d = h.model_dump()
+                    d["snippet"] = _hit_snippet(conn, h.video_id, h.ts_sec)
+                    hits_view.append(d)
+        return templates.TemplateResponse(request, "_results.html", {"hits": hits_view})
+
+    @app.post("/ui/search/screenshot", response_class=HTMLResponse)
+    async def ui_search_screenshot(
+        request: Request, file: UploadFile = SCREENSHOT_FILE, k: int = SCREENSHOT_K
+    ):
+        image = await file.read()
+        with connection() as conn:
+            cands = screenshot.candidates(
+                conn, image, get_image_embedder(), ocr_reader=get_ocr_reader(), k=k
+            )
+            hits = merge.merge_from_db(conn, cands, k=k)
+            hits_view = []
+            for h in hits:
+                d = h.model_dump()
+                d["snippet"] = _hit_snippet(conn, h.video_id, h.ts_sec)
+                hits_view.append(d)
+        return templates.TemplateResponse(request, "_results.html", {"hits": hits_view})
+
+    @app.get("/ui/result/{video_id}", response_class=HTMLResponse)
+    def ui_result(request: Request, video_id: int, ts: float = 0.0):
+        from kanomori.retrieval.result import result_detail
+
+        with connection() as conn:
+            detail = result_detail(conn, video_id, ts)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="video not found")
+        return templates.TemplateResponse(request, "result.html", {"detail": detail})
 
 
 app = create_app()
