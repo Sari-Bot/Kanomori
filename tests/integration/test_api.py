@@ -76,6 +76,24 @@ def test_search_transcript_returns_hit_for_keyword(client, seeded) -> None:
     assert hits[0]["ts_sec"] == pytest.approx(0.0)
 
 
+def test_search_transcript_returns_scene_type_from_merge_layer(client, seeded, db_conn) -> None:
+    db_conn.execute(
+        """
+        INSERT INTO scene_segments (video_id, start_sec, end_sec, scene_type, confidence)
+        VALUES (%s, 0.0, 8.0, 'chatting', 0.9)
+        """,
+        (seeded,),
+    )
+    db_conn.commit()
+
+    resp = client.post("/search/transcript", json={"query": "マインクラフト", "k": 5})
+
+    assert resp.status_code == 200
+    hits = resp.json()["hits"]
+    assert hits[0]["scene_type"] == "chatting"
+    assert "transcript" in hits[0]["why"]
+
+
 def test_search_transcript_out_of_corpus_query_returns_dense_neighbors(client, seeded) -> None:
     # Hybrid retrieval: a query with no lexical match still returns dense nearest neighbors
     # (cosine distance is always defined). Such hits rank low and the UI shows confidence;
