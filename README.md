@@ -42,6 +42,7 @@ uv sync                       # core + dev deps (fast; no torch)
 uv sync --group ingest        # + frame/OCR/tokenization deps (offline host)
 uv sync --group embed         # + embedding/scene models (pulls CPU torch)
 uv sync --group ocr-eval      # optional OCR bake-off engines (not production default)
+uv sync --group ocr-cuda      # optional ONNX Runtime CUDA OCR on NVIDIA Linux
 uv sync --group ocr-trt       # optional CUDA bindings for NVIDIA TensorRT OCR
 
 cp .env.example .env          # adjust DATABASE_URL / KITS_DIR / MEDIA_ROOT if needed
@@ -76,10 +77,44 @@ KANOMORI_QUERY_OCR_BACKEND=onnxruntime
 
 Supported models are `legacy_rapidocr`, `ppocrv5_mobile`, and `ppocrv5_server`. Supported
 backends are `onnxruntime`, `cuda`, and `tensorrt`; `legacy_rapidocr` supports only
-`onnxruntime`. Use `cuda` for the ONNX Runtime CUDA Execution Provider when TensorRT recall is
-poor but GPU latency is still needed. TensorRT remains available for speed experiments and
-requires an NVIDIA Linux host, the `ocr-trt` dependency group, and the TensorRT Python package
-from NVIDIA's package index, for example:
+`onnxruntime`.
+
+CPU OCR setup:
+
+```bash
+uv sync --group ingest --group ocr-eval
+```
+
+CUDA OCR setup uses ONNX Runtime's CUDA Execution Provider. Use this when TensorRT recall is
+poor but GPU latency is still needed:
+
+```bash
+uv sync --group ingest --group ocr-cuda
+```
+
+The CUDA backend preloads NVIDIA wheel libraries from `site-packages/nvidia/*/lib` before
+importing ONNX Runtime, so a normal uv-managed venv is enough on most NVIDIA Linux hosts. On WSL,
+if the driver library is not discoverable, also expose the WSL driver path before running OCR:
+
+```bash
+export LD_LIBRARY_PATH="/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
+Verify provider discovery:
+
+```bash
+uv run python - <<'PY'
+from kanomori.ocr_tensorrt import ensure_cuda_ep_available
+from kanomori.ocr import OcrBackendUnavailable
+
+ensure_cuda_ep_available(OcrBackendUnavailable)
+print("CUDAExecutionProvider available")
+PY
+```
+
+TensorRT remains available for speed experiments and requires an NVIDIA Linux host, the
+`ocr-trt` dependency group, and the TensorRT Python package from NVIDIA's package index, for
+example:
 
 ```bash
 uv sync --group ocr-trt
@@ -92,7 +127,7 @@ allowed, but benchmark runs fail instead so backend numbers stay honest.
 To benchmark PP-OCRv5 candidates:
 
 ```bash
-uv sync --group ingest --group ocr-eval
+uv sync --group ingest --group ocr-eval --group ocr-cuda
 uv run kanomori-ocr-benchmark \
   --cases eval/ocr/kanomori_frames.jsonl \
   --models ppocrv5_server \

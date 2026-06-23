@@ -21,6 +21,7 @@ _CLS_PROFILE = ("x:1x3x48x32", "x:6x3x48x192", "x:6x3x48x192")
 
 
 def ensure_cuda_ep_available(unavailable_error: type[Exception]) -> None:
+    _preload_nvidia_wheel_libraries()
     try:
         onnxruntime = importlib.import_module("onnxruntime")
     except ImportError as exc:
@@ -37,6 +38,7 @@ def ensure_cuda_ep_available(unavailable_error: type[Exception]) -> None:
 
 
 def ensure_tensorrt_ep_available(unavailable_error: type[Exception]) -> None:
+    _preload_nvidia_wheel_libraries()
     try:
         onnxruntime = importlib.import_module("onnxruntime")
     except ImportError as exc:
@@ -60,12 +62,52 @@ def _ensure_provider_available(
     backend_label: str,
     unavailable_error: type[Exception],
 ) -> None:
-    providers = list(onnxruntime.get_available_providers())
+    get_available_providers = getattr(onnxruntime, "get_available_providers", None)
+    if not callable(get_available_providers):
+        module_path = getattr(onnxruntime, "__file__", "<unknown>")
+        raise unavailable_error(
+            f"{backend_label} OCR backend unavailable; imported onnxruntime module "
+            f"at {module_path} does not expose get_available_providers()"
+        )
+
+    providers = list(get_available_providers())
     if provider not in providers:
         raise unavailable_error(
             f"{backend_label} OCR backend unavailable; {provider} not in "
             f"ONNX Runtime providers: {providers}"
         )
+
+
+def _preload_nvidia_wheel_libraries() -> None:
+    for lib_path in _nvidia_wheel_library_paths():
+        try:
+            ctypes.CDLL(str(lib_path), mode=getattr(ctypes, "RTLD_GLOBAL", 0))
+        except OSError:
+            continue
+
+
+def _nvidia_wheel_library_paths() -> list[Path]:
+    return sorted(
+        {
+            lib_path.resolve()
+            for lib_dir in _nvidia_wheel_library_dirs()
+            for lib_path in lib_dir.glob("*.so*")
+            if lib_path.is_file()
+        }
+    )
+
+
+def _nvidia_wheel_library_dirs() -> list[Path]:
+    roots = [Path(path) for path in site.getsitepackages()]
+    user_site = site.getusersitepackages()
+    if user_site:
+        roots.append(Path(user_site))
+    return [
+        lib_dir
+        for root in roots
+        for lib_dir in sorted((root / "nvidia").glob("*/lib"))
+        if lib_dir.is_dir()
+    ]
 
 
 @contextmanager

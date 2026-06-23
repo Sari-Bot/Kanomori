@@ -94,7 +94,9 @@ class RapidOcrPpOcrV5Reader:
             from rapidocr import EngineType, LangDet, LangRec, ModelType, OCRVersion, RapidOCR
         except ImportError as exc:
             raise RuntimeError(
-                "rapidocr PP-OCRv5 providers require `uv sync --group ocr-eval`"
+                "rapidocr PP-OCRv5 providers require `uv sync --group ingest --group "
+                "ocr-eval` for CPU OCR or `uv sync --group ingest --group ocr-cuda` "
+                "for CUDA OCR"
             ) from exc
 
         model = ModelType.SERVER if model_type == "server" else ModelType.MOBILE

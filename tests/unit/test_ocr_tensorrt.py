@@ -393,6 +393,44 @@ def test_rapidocr_v3_reader_rejects_cuda_when_ort_provider_missing(monkeypatch) 
         )
 
 
+def test_ensure_cuda_ep_available_preloads_nvidia_wheels_before_importing_ort(
+    monkeypatch,
+) -> None:
+    calls = []
+    fake_onnxruntime = types.SimpleNamespace(
+        get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"],
+    )
+
+    def fake_import_module(name):
+        assert name == "onnxruntime"
+        assert calls == ["preload"]
+        calls.append("import")
+        return fake_onnxruntime
+
+    monkeypatch.setattr(
+        "kanomori.ocr_tensorrt._preload_nvidia_wheel_libraries",
+        lambda: calls.append("preload"),
+    )
+    monkeypatch.setattr(
+        "kanomori.ocr_tensorrt.importlib.import_module",
+        fake_import_module,
+    )
+
+    ensure_cuda_ep_available(ocr.OcrBackendUnavailable)
+
+    assert calls == ["preload", "import"]
+
+
+def test_ensure_cuda_ep_available_rejects_onnxruntime_without_provider_api(
+    monkeypatch,
+) -> None:
+    fake_onnxruntime = types.SimpleNamespace(__file__="/tmp/shadowed/onnxruntime.py")
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_onnxruntime)
+
+    with pytest.raises(ocr.OcrBackendUnavailable, match="get_available_providers"):
+        ensure_cuda_ep_available(ocr.OcrBackendUnavailable)
+
+
 def test_ensure_cuda_ep_available_does_not_preload_tensorrt(monkeypatch) -> None:
     fake_onnxruntime = types.SimpleNamespace(
         get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"],
