@@ -22,6 +22,10 @@ def test_settings_defaults_load() -> None:
     s = Settings(_env_file=None)
     assert s.database_url.startswith("postgresql://")
     assert s.text_model  # a non-empty model id
+    assert s.ingest_ocr_model == "ppocrv5_server"
+    assert s.ingest_ocr_backend == "onnxruntime"
+    assert s.query_ocr_model == "ppocrv5_server"
+    assert s.query_ocr_backend == "onnxruntime"
 
 
 def test_migrations_present_and_ordered() -> None:

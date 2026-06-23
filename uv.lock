@@ -857,12 +857,16 @@ ingest = [
     { name = "imagehash" },
     { name = "onnxruntime" },
     { name = "pillow" },
+    { name = "rapidocr" },
     { name = "rapidocr-onnxruntime" },
     { name = "scenedetect" },
 ]
 ocr-eval = [
     { name = "onnxruntime" },
     { name = "rapidocr" },
+]
+ocr-trt = [
+    { name = "cuda-bindings", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 
 [package.metadata]
@@ -900,6 +904,7 @@ ingest = [
     { name = "imagehash", specifier = ">=4.3" },
     { name = "onnxruntime", specifier = ">=1.20" },
     { name = "pillow", specifier = ">=11.0" },
+    { name = "rapidocr", specifier = ">=3.9.0" },
     { name = "rapidocr-onnxruntime", specifier = ">=1.4" },
     { name = "scenedetect", extras = ["opencv"], specifier = ">=0.6.5" },
 ]
@@ -907,6 +912,7 @@ ocr-eval = [
     { name = "onnxruntime", specifier = ">=1.20" },
     { name = "rapidocr", specifier = ">=3.9.0" },
 ]
+ocr-trt = [{ name = "cuda-bindings", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=12.0" }]
 
 [[package]]
 name = "lxml"

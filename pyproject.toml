@@ -51,6 +51,7 @@ ingest = [
     "scenedetect[opencv]>=0.6.5",
     "ffmpeg-python>=0.2",
     "fugashi[unidic-lite]>=1.3",
+    "rapidocr>=3.9.0",
     "rapidocr-onnxruntime>=1.4",
     "onnxruntime>=1.20",
 ]
@@ -58,6 +59,11 @@ ingest = [
 ocr-eval = [
     "rapidocr>=3.9.0",
     "onnxruntime>=1.20",
+]
+# Optional NVIDIA-only TensorRT OCR backend. Install `tensorrt` on the NVIDIA host from
+# NVIDIA's package index; uv's universal lock tries to build its Linux wheel stub on macOS.
+ocr-trt = [
+    "cuda-bindings>=12.0; platform_system == 'Linux' and platform_machine == 'x86_64'",
 ]
 # Embedding / scene-classification models. Pulls CPU torch (NOT cu128). `uv sync --group embed`.
 embed = [

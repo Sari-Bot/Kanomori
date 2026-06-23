@@ -35,7 +35,15 @@ class Settings(BaseSettings):
     text_model: str = "BAAI/bge-m3"
     image_model: str = "facebook/dinov2-base"
     scene_model: str = "google/siglip-base-patch16-224"
-    ocr_engine: str = "legacy_rapidocr"
+
+    # OCR config is split by workload because offline ingestion can favor accuracy while
+    # screenshot query may need a lower-latency profile.
+    ingest_ocr_model: str = "ppocrv5_server"
+    ingest_ocr_backend: str = "onnxruntime"
+    query_ocr_model: str = "ppocrv5_server"
+    query_ocr_backend: str = "onnxruntime"
+    # Deprecated migration input for the old flat engine names.
+    ocr_engine: str | None = None
 
     # Subprocess timeout (seconds) for a single KITS transcription. None = no limit.
     kits_timeout: float | None = None

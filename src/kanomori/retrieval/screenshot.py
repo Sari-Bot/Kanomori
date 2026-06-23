@@ -19,13 +19,16 @@ DEFAULT_PHASH_THRESHOLD = 10
 class UploadOcrReader:
     """RapidOCR wrapper for query-time screenshot text extraction."""
 
-    def text_from_image_bytes(self, data: bytes) -> str:
-        from kanomori.ingest.stages.ocr import read_frame_ocr
+    def __init__(self):
+        from kanomori import ocr
 
+        self._reader = ocr.get_ocr_reader(scope="query")
+
+    def text_from_image_bytes(self, data: bytes) -> str:
         with NamedTemporaryFile(suffix=".png") as tmp:
             tmp.write(data)
             tmp.flush()
-            results = read_frame_ocr(Path(tmp.name))
+            results = self._reader.read_image(Path(tmp.name))
         return " ".join(result.text for result in results)
 
 

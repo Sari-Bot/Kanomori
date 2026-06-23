@@ -10,7 +10,7 @@ from kanomori.text import tokenize_for_fts
 
 
 def read_frame_ocr(path: Path) -> list[OcrResult]:
-    return read_image_ocr(path)
+    return read_image_ocr(path, scope="ingest")
 
 
 def run(conn, ctx):

@@ -42,6 +42,7 @@ uv sync                       # core + dev deps (fast; no torch)
 uv sync --group ingest        # + frame/OCR/tokenization deps (offline host)
 uv sync --group embed         # + embedding/scene models (pulls CPU torch)
 uv sync --group ocr-eval      # optional OCR bake-off engines (not production default)
+uv sync --group ocr-trt       # optional CUDA bindings for NVIDIA TensorRT OCR
 
 cp .env.example .env          # adjust DATABASE_URL / KITS_DIR / MEDIA_ROOT if needed
 docker compose up -d          # PostgreSQL + pgvector on localhost:5433
@@ -62,15 +63,42 @@ Then `POST /ingest` with a local clip's `media_path`, poll `GET /ingest/{job_id}
 
 ## OCR refinement
 
-Production OCR defaults to `KANOMORI_OCR_ENGINE=legacy_rapidocr`, matching the original
-`rapidocr-onnxruntime` behavior. To benchmark newer PP-OCRv5 candidates before switching:
+OCR is configured as `model + backend` so the ingestion and screenshot-query paths can use the
+same `OcrReader -> list[OcrResult]` contract while swapping inference backends underneath.
+Defaults are:
+
+```bash
+KANOMORI_INGEST_OCR_MODEL=ppocrv5_server
+KANOMORI_INGEST_OCR_BACKEND=onnxruntime
+KANOMORI_QUERY_OCR_MODEL=ppocrv5_server
+KANOMORI_QUERY_OCR_BACKEND=onnxruntime
+```
+
+Supported models are `legacy_rapidocr`, `ppocrv5_mobile`, and `ppocrv5_server`. Supported
+backends are `onnxruntime` and `tensorrt`; `legacy_rapidocr` supports only `onnxruntime`.
+TensorRT requires an NVIDIA Linux host, the `ocr-trt` dependency group, and the TensorRT Python
+package from NVIDIA's package index, for example:
+
+```bash
+uv sync --group ocr-trt
+uv pip install --extra-index-url https://pypi.nvidia.com/ tensorrt
+```
+
+Runtime OCR falls back from TensorRT to ONNX Runtime when TensorRT is unavailable, but benchmark
+runs fail instead so backend numbers stay honest.
+
+To benchmark PP-OCRv5 candidates:
 
 ```bash
 uv sync --group ingest --group ocr-eval
 uv run kanomori-ocr-benchmark \
   --cases eval/ocr/kanomori_frames.jsonl \
-  --engines legacy_rapidocr,rapidocr_ppocrv5_mobile
+  --models ppocrv5_server \
+  --backends onnxruntime,tensorrt
 ```
+
+The deprecated `--engines legacy_rapidocr,rapidocr_ppocrv5_mobile` form still works for old
+ONNX-only bake-offs.
 
 Benchmark cases are JSONL records with an image path and expected visible terms:
 
