@@ -3,39 +3,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
+from kanomori.ocr import OcrResult, read_image_ocr
 from kanomori.text import tokenize_for_fts
 
 
-@dataclass(frozen=True)
-class OcrResult:
-    text: str
-    confidence: float | None = None
-    bbox: dict | list | None = None
-
-
-_READER = None
-
-
-def _reader():
-    global _READER
-    if _READER is None:
-        from rapidocr_onnxruntime import RapidOCR
-
-        _READER = RapidOCR()
-    return _READER
-
-
 def read_frame_ocr(path: Path) -> list[OcrResult]:
-    raw, _elapsed = _reader()(str(path))
-    out: list[OcrResult] = []
-    for item in raw or []:
-        bbox, text, score = item
-        if text:
-            out.append(OcrResult(text=text, confidence=float(score), bbox=bbox))
-    return out
+    return read_image_ocr(path)
 
 
 def run(conn, ctx):

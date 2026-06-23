@@ -41,6 +41,7 @@ checkout (`uv sync`-ed in its own venv) is needed only to run real transcription
 uv sync                       # core + dev deps (fast; no torch)
 uv sync --group ingest        # + frame/OCR/tokenization deps (offline host)
 uv sync --group embed         # + embedding/scene models (pulls CPU torch)
+uv sync --group ocr-eval      # optional OCR bake-off engines (not production default)
 
 cp .env.example .env          # adjust DATABASE_URL / KITS_DIR / MEDIA_ROOT if needed
 docker compose up -d          # PostgreSQL + pgvector on localhost:5433
@@ -58,6 +59,28 @@ uv run kanomori-worker                         # ingestion worker loop (availabl
 
 Then `POST /ingest` with a local clip's `media_path`, poll `GET /ingest/{job_id}` until
 `complete`, and `POST /search/transcript` with a phrase to get ranked stream + timestamp hits.
+
+## OCR refinement
+
+Production OCR defaults to `KANOMORI_OCR_ENGINE=legacy_rapidocr`, matching the original
+`rapidocr-onnxruntime` behavior. To benchmark newer PP-OCRv5 candidates before switching:
+
+```bash
+uv sync --group ingest --group ocr-eval
+uv run kanomori-ocr-benchmark \
+  --cases eval/ocr/kanomori_frames.jsonl \
+  --engines legacy_rapidocr,rapidocr_ppocrv5_mobile
+```
+
+Benchmark cases are JSONL records with an image path and expected visible terms:
+
+```json
+{"id":"frame-001","image":"media/.../frame.jpg","expected_terms":["鹿乃","歌枠"]}
+```
+
+`image` may be a glob such as `media/*/frames/frame_000000_000.jpg`, but it must match
+exactly one file. `expected_terms` should be phrase-level visible substrings: split long
+sentences into stable chunks that matter for retrieval, while avoiding single-character terms.
 
 ## Layout
 

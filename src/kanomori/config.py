@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     text_model: str = "BAAI/bge-m3"
     image_model: str = "facebook/dinov2-base"
     scene_model: str = "google/siglip-base-patch16-224"
+    ocr_engine: str = "legacy_rapidocr"
 
     # Subprocess timeout (seconds) for a single KITS transcription. None = no limit.
     kits_timeout: float | None = None
