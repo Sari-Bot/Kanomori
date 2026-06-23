@@ -165,7 +165,7 @@ def test_main_writes_model_backend_json_metrics(monkeypatch, tmp_path, capsys) -
             "--models",
             "ppocrv5_server",
             "--backends",
-            "onnxruntime,tensorrt",
+            "onnxruntime,cuda,tensorrt",
         ]
     )
 
@@ -173,11 +173,13 @@ def test_main_writes_model_backend_json_metrics(monkeypatch, tmp_path, capsys) -
     payload = json.loads(capsys.readouterr().out)
     assert [(m["model"], m["backend"]) for m in payload["metrics"]] == [
         ("ppocrv5_server", "onnxruntime"),
+        ("ppocrv5_server", "cuda"),
         ("ppocrv5_server", "tensorrt"),
     ]
-    assert [m["term_recall"] for m in payload["metrics"]] == [1.0, 1.0]
+    assert [m["term_recall"] for m in payload["metrics"]] == [1.0, 1.0, 1.0]
     assert calls == [
         ("ppocrv5_server", "onnxruntime", False),
+        ("ppocrv5_server", "cuda", False),
         ("ppocrv5_server", "tensorrt", False),
     ]
 
@@ -273,3 +275,39 @@ def test_main_returns_nonzero_when_requested_backend_unavailable(
     assert exit_code == 2
     assert captured.out == ""
     assert "TensorRT unavailable" in captured.err
+
+
+def test_main_returns_nonzero_when_requested_cuda_backend_unavailable(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    image = tmp_path / "frame.jpg"
+    image.write_bytes(b"fake")
+    cases_path = tmp_path / "cases.jsonl"
+    cases_path.write_text(
+        json.dumps({"id": "frame-1", "image": str(image), "expected_terms": ["鹿乃"]}),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def get_reader(model, backend, *, allow_backend_fallback=True):
+        calls.append((model, backend, allow_backend_fallback))
+        raise ocr.OcrBackendUnavailable("CUDAExecutionProvider unavailable")
+
+    monkeypatch.setattr(ocr, "get_ocr_reader", get_reader)
+
+    exit_code = main(
+        [
+            "--cases",
+            str(cases_path),
+            "--models",
+            "ppocrv5_server",
+            "--backends",
+            "cuda",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "CUDAExecutionProvider unavailable" in captured.err
+    assert calls == [("ppocrv5_server", "cuda", False)]

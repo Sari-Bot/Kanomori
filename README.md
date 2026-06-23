@@ -75,17 +75,19 @@ KANOMORI_QUERY_OCR_BACKEND=onnxruntime
 ```
 
 Supported models are `legacy_rapidocr`, `ppocrv5_mobile`, and `ppocrv5_server`. Supported
-backends are `onnxruntime` and `tensorrt`; `legacy_rapidocr` supports only `onnxruntime`.
-TensorRT requires an NVIDIA Linux host, the `ocr-trt` dependency group, and the TensorRT Python
-package from NVIDIA's package index, for example:
+backends are `onnxruntime`, `cuda`, and `tensorrt`; `legacy_rapidocr` supports only
+`onnxruntime`. Use `cuda` for the ONNX Runtime CUDA Execution Provider when TensorRT recall is
+poor but GPU latency is still needed. TensorRT remains available for speed experiments and
+requires an NVIDIA Linux host, the `ocr-trt` dependency group, and the TensorRT Python package
+from NVIDIA's package index, for example:
 
 ```bash
 uv sync --group ocr-trt
 uv pip install --extra-index-url https://pypi.nvidia.com/ tensorrt
 ```
 
-Runtime OCR falls back from TensorRT to ONNX Runtime when TensorRT is unavailable, but benchmark
-runs fail instead so backend numbers stay honest.
+Runtime OCR falls back from unavailable CUDA or TensorRT to ONNX Runtime when fallback is
+allowed, but benchmark runs fail instead so backend numbers stay honest.
 
 To benchmark PP-OCRv5 candidates:
 
@@ -94,7 +96,7 @@ uv sync --group ingest --group ocr-eval
 uv run kanomori-ocr-benchmark \
   --cases eval/ocr/kanomori_frames.jsonl \
   --models ppocrv5_server \
-  --backends onnxruntime,tensorrt
+  --backends onnxruntime,cuda,tensorrt
 ```
 
 The deprecated `--engines legacy_rapidocr,rapidocr_ppocrv5_mobile` form still works for old

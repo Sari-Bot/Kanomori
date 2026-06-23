@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-import importlib
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+
+from kanomori.ocr_tensorrt import (
+    ensure_cuda_ep_available,
+    ensure_tensorrt_ep_available,
+    onnxruntime_cuda_provider_chain,
+    rapidocr_onnxruntime_ep_adapter,
+    rapidocr_tensorrt_ep_adapter,
+)
 
 LEGACY_RAPIDOCR = "legacy_rapidocr"
 RAPIDOCR_PPOCRV5_MOBILE = "rapidocr_ppocrv5_mobile"
@@ -15,6 +23,7 @@ RAPIDOCR_PPOCRV5_SERVER = "rapidocr_ppocrv5_server"
 PPOCRV5_MOBILE = "ppocrv5_mobile"
 PPOCRV5_SERVER = "ppocrv5_server"
 OCR_BACKEND_ONNXRUNTIME = "onnxruntime"
+OCR_BACKEND_CUDA = "cuda"
 OCR_BACKEND_TENSORRT = "tensorrt"
 
 OCR_ENGINES = {
@@ -29,6 +38,11 @@ OCR_MODELS = {
 }
 OCR_BACKENDS = {
     OCR_BACKEND_ONNXRUNTIME,
+    OCR_BACKEND_CUDA,
+    OCR_BACKEND_TENSORRT,
+}
+GPU_OCR_BACKENDS = {
+    OCR_BACKEND_CUDA,
     OCR_BACKEND_TENSORRT,
 }
 OCR_SCOPES = {"ingest", "query"}
@@ -84,11 +98,7 @@ class RapidOcrPpOcrV5Reader:
             ) from exc
 
         model = ModelType.SERVER if model_type == "server" else ModelType.MOBILE
-        engine = (
-            EngineType.TENSORRT
-            if backend == OCR_BACKEND_TENSORRT
-            else EngineType.ONNXRUNTIME
-        )
+        engine = EngineType.ONNXRUNTIME
         params = {
             "Det.engine_type": engine,
             "Det.lang_type": LangDet.CH,
@@ -99,7 +109,23 @@ class RapidOcrPpOcrV5Reader:
             "Rec.model_type": model,
             "Rec.ocr_version": OCRVersion.PPOCRV5,
         }
-        self._reader = RapidOCR(params=params)
+        try:
+            if backend == OCR_BACKEND_CUDA:
+                ensure_cuda_ep_available(OcrBackendUnavailable)
+            if backend == OCR_BACKEND_TENSORRT:
+                ensure_tensorrt_ep_available(OcrBackendUnavailable)
+            provider_context = _rapidocr_provider_context(backend)
+            with provider_context:
+                self._reader = RapidOCR(params=params)
+        except OcrBackendUnavailable:
+            raise
+        except Exception as exc:
+            if backend not in GPU_OCR_BACKENDS:
+                raise
+            backend_label = "TensorRT" if backend == OCR_BACKEND_TENSORRT else "CUDA"
+            raise OcrBackendUnavailable(
+                f"{backend_label} initialization failed: {exc}"
+            ) from exc
 
     def read_image(self, path: Path) -> list[OcrResult]:
         return normalize_ocr_items(self._reader(str(path)))
@@ -239,7 +265,7 @@ def _make_reader_with_fallback(
     try:
         return _make_reader(config)
     except OcrBackendUnavailable:
-        if config.backend != OCR_BACKEND_TENSORRT or not allow_backend_fallback:
+        if config.backend not in GPU_OCR_BACKENDS or not allow_backend_fallback:
             raise
         fallback = OcrConfig(config.model, OCR_BACKEND_ONNXRUNTIME)
         logger.warning(
@@ -255,8 +281,6 @@ def _make_reader(config: OcrConfig) -> OcrReader:
     config = validate_ocr_config(config)
     if config.model == LEGACY_RAPIDOCR:
         return LegacyRapidOcrReader()
-    if config.backend == OCR_BACKEND_TENSORRT:
-        _ensure_tensorrt_available()
     if config.model == PPOCRV5_MOBILE:
         return RapidOcrPpOcrV5Reader(model_type="mobile", backend=config.backend)
     if config.model == PPOCRV5_SERVER:
@@ -264,16 +288,17 @@ def _make_reader(config: OcrConfig) -> OcrReader:
     raise ValueError(f"Unsupported OCR model {config.model!r}")
 
 
-def _ensure_tensorrt_available() -> None:
-    missing: list[str] = []
-    for module_name in ("tensorrt", "cuda.bindings.runtime"):
-        try:
-            importlib.import_module(module_name)
-        except ImportError:
-            missing.append(module_name)
-    if missing:
-        modules = ", ".join(missing)
-        raise OcrBackendUnavailable(f"TensorRT OCR backend unavailable; missing {modules}")
+def _rapidocr_provider_context(backend: str):
+    if backend == OCR_BACKEND_CUDA:
+        return rapidocr_onnxruntime_ep_adapter(
+            "CUDA",
+            ["CUDAExecutionProvider"],
+            onnxruntime_cuda_provider_chain,
+            OcrBackendUnavailable,
+        )
+    if backend == OCR_BACKEND_TENSORRT:
+        return rapidocr_tensorrt_ep_adapter(OcrBackendUnavailable)
+    return nullcontext()
 
 
 def normalize_ocr_items(raw: Any) -> list[OcrResult]:

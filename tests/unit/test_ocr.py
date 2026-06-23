@@ -57,6 +57,25 @@ def test_scope_specific_ocr_config_overrides_deprecated_engine() -> None:
     )
 
 
+def test_scope_specific_ocr_config_accepts_cuda_backend() -> None:
+    from kanomori.config import Settings
+
+    settings = Settings(
+        ingest_ocr_backend=ocr.OCR_BACKEND_CUDA,
+        query_ocr_backend=ocr.OCR_BACKEND_CUDA,
+        _env_file=None,
+    )
+
+    assert ocr.resolve_ocr_config(scope="ingest", settings=settings) == ocr.OcrConfig(
+        model=ocr.PPOCRV5_SERVER,
+        backend=ocr.OCR_BACKEND_CUDA,
+    )
+    assert ocr.resolve_ocr_config(scope="query", settings=settings) == ocr.OcrConfig(
+        model=ocr.PPOCRV5_SERVER,
+        backend=ocr.OCR_BACKEND_CUDA,
+    )
+
+
 def test_legacy_rapidocr_reader_normalizes_tuple_results(monkeypatch, tmp_path) -> None:
     class FakeRapidOCR:
         def __call__(self, path: str):
@@ -78,63 +97,6 @@ def test_legacy_rapidocr_reader_normalizes_tuple_results(monkeypatch, tmp_path) 
             text="入口の看板",
             confidence=pytest.approx(0.91),
             bbox=[[0, 0], [1, 0], [1, 1], [0, 1]],
-        )
-    ]
-
-
-def test_rapidocr_v3_reader_configures_ppocrv5_mobile_tensorrt(monkeypatch, tmp_path) -> None:
-    captured = {}
-
-    class FakeEnumValue:
-        def __init__(self, value: str):
-            self.value = value
-
-    class FakeRapidOCR:
-        def __init__(self, params):
-            captured.update(params)
-
-        def __call__(self, path: str):
-            assert Path(path).name == "frame.jpg"
-            return types.SimpleNamespace(
-                boxes=[[[0, 0], [4, 0], [4, 4], [0, 4]]],
-                txts=["鹿乃"],
-                scores=[0.88],
-            )
-
-    fake_module = types.SimpleNamespace(
-        EngineType=types.SimpleNamespace(
-            ONNXRUNTIME=FakeEnumValue("onnxruntime"),
-            TENSORRT=FakeEnumValue("tensorrt"),
-        ),
-        LangDet=types.SimpleNamespace(CH=FakeEnumValue("ch")),
-        LangRec=types.SimpleNamespace(CH=FakeEnumValue("ch")),
-        ModelType=types.SimpleNamespace(
-            MOBILE=FakeEnumValue("mobile"),
-            SERVER=FakeEnumValue("server"),
-        ),
-        OCRVersion=types.SimpleNamespace(PPOCRV5=FakeEnumValue("PP-OCRv5")),
-        RapidOCR=FakeRapidOCR,
-    )
-    monkeypatch.setitem(sys.modules, "rapidocr", fake_module)
-    image = tmp_path / "frame.jpg"
-    image.write_bytes(b"fake")
-
-    results = ocr.RapidOcrPpOcrV5Reader(
-        model_type="mobile",
-        backend=ocr.OCR_BACKEND_TENSORRT,
-    ).read_image(image)
-
-    assert captured["Det.engine_type"].value == "tensorrt"
-    assert captured["Rec.engine_type"].value == "tensorrt"
-    assert captured["Det.model_type"].value == "mobile"
-    assert captured["Rec.model_type"].value == "mobile"
-    assert captured["Det.ocr_version"].value == "PP-OCRv5"
-    assert captured["Rec.ocr_version"].value == "PP-OCRv5"
-    assert results == [
-        ocr.OcrResult(
-            text="鹿乃",
-            confidence=pytest.approx(0.88),
-            bbox=[[0, 0], [4, 0], [4, 4], [0, 4]],
         )
     ]
 
@@ -217,6 +179,28 @@ def test_get_ocr_reader_falls_back_from_tensorrt_to_onnxruntime(monkeypatch) -> 
     monkeypatch.setattr(ocr, "_make_reader", make_reader)
 
     reader = ocr.get_ocr_reader(ocr.PPOCRV5_SERVER, ocr.OCR_BACKEND_TENSORRT)
+
+    assert isinstance(reader, FakeReader)
+    assert created == [ocr.OcrConfig(ocr.PPOCRV5_SERVER, ocr.OCR_BACKEND_ONNXRUNTIME)]
+
+
+def test_get_ocr_reader_falls_back_from_cuda_to_onnxruntime(monkeypatch) -> None:
+    class FakeReader:
+        def read_image(self, path):
+            return []
+
+    created: list[ocr.OcrConfig] = []
+
+    def make_reader(config: ocr.OcrConfig):
+        if config.backend == ocr.OCR_BACKEND_CUDA:
+            raise ocr.OcrBackendUnavailable("CUDA unavailable")
+        created.append(config)
+        return FakeReader()
+
+    monkeypatch.setattr(ocr, "_READERS", {})
+    monkeypatch.setattr(ocr, "_make_reader", make_reader)
+
+    reader = ocr.get_ocr_reader(ocr.PPOCRV5_SERVER, ocr.OCR_BACKEND_CUDA)
 
     assert isinstance(reader, FakeReader)
     assert created == [ocr.OcrConfig(ocr.PPOCRV5_SERVER, ocr.OCR_BACKEND_ONNXRUNTIME)]
