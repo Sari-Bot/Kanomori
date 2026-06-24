@@ -346,11 +346,12 @@ def test_verbose_logs_claim_cache_and_artifact_details(
     assert f"cache_path={local}" in captured.out
     assert "[worker] source detail job=42 action=reuse cache_path=" in captured.out
     assert (
-        "[worker] stage detail job=42 stage=locate_media outcome=no-model artifacts=0"
+        "[worker] stage detail job=42 stage=locate_media "
+        "outcome=no-model result_bytes=0 artifacts=0"
         in captured.out
     )
     assert (
-        "[worker] stage detail job=42 stage=transcribe outcome=result artifacts=1"
+        "[worker] stage detail job=42 stage=transcribe outcome=result result_bytes=50 artifacts=1"
         in captured.out
     )
     assert "[worker] push ok job=42 stage=transcribe artifacts=1" in captured.out
@@ -381,7 +382,10 @@ def test_verbose_relays_live_stage_output(patch_computes, cache_dir, capsys, mon
     )
 
     captured = capsys.readouterr()
-    assert "[worker] stage log job=42 stage=transcribe stream=stdout line=segment 1/4" in captured.out
+    assert (
+        "[worker] stage log job=42 stage=transcribe stream=stdout line=segment 1/4"
+        in captured.out
+    )
 
 
 # --- --compute-only ----------------------------------------------------------------------

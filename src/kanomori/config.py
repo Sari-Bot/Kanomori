@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     # Base URL a distributed worker reaches the coordinator /jobs router at. Default suits a
     # worker co-located with the coordinator; remote workers set KANOMORI_COORDINATOR_URL.
     coordinator_url: str = "http://localhost:8000"
+    # Max accepted size of the worker->coordinator stage result JSON upload, in bytes.
+    stage_result_max_bytes: int = 64 * 1024 * 1024
 
     # Model ids. Embedding dims are pinned as constants in code (see embed/ and migrations),
     # not derived from these strings, to keep the SQL schema authoritative.

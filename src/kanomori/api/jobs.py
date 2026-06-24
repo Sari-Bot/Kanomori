@@ -5,8 +5,9 @@ coordinator, which owns the database, through these endpoints:
 
 * ``POST /jobs/claim``               — lease the oldest eligible job (or 204 when idle).
 * ``POST /jobs/{id}/heartbeat``      — extend the lease mid-stage.
-* ``POST /jobs/{id}/stage/{name}``   — multipart: a ``result`` JSON + the stage's binary
-                                       artifacts (frame JPEGs / the SRT). Persisted atomically.
+* ``POST /jobs/{id}/stage/{name}``   — multipart: a ``result_file`` JSON upload + the stage's
+                                       binary artifacts (frame JPEGs / the SRT). Persisted
+                                       atomically.
 * ``POST /jobs/{id}/complete``       — mark the job done.
 * ``POST /jobs/{id}/fail``           — mark the job failed (records error, bumps attempts).
 
@@ -32,8 +33,8 @@ from kanomori.ingest import lease
 from kanomori.ingest.artifacts import frame_dir_for, srt_path_for
 
 # FastAPI dependency defaults are constructed once at import (B008-safe vs inline calls).
-STAGE_RESULT_FORM = Form("")
 LEASE_EPOCH_FORM = Form(...)
+STAGE_RESULT_FILE = File(default=None)
 STAGE_FILES = File(default_factory=list)
 
 
@@ -164,14 +165,14 @@ def build_jobs_router() -> APIRouter:
         job_id: int,
         stage_name: str,
         lease_epoch: int = LEASE_EPOCH_FORM,
-        result: str = STAGE_RESULT_FORM,
+        result_file: UploadFile | None = STAGE_RESULT_FILE,
         files: list[UploadFile] = STAGE_FILES,
     ):
         """Persist one stage's result + artifacts atomically, fenced on ``lease_epoch``.
 
-        One transaction: fence-check the epoch (409 if stale), parse ``result`` into the stage's
-        model, save uploaded artifacts to disk, call the stage's ``persist``, then mark the stage
-        done. Either the whole stage lands or none of it does.
+        One transaction: fence-check the epoch (409 if stale), parse ``result_file`` into the
+        stage's model, save uploaded artifacts to disk, call the stage's ``persist``, then mark
+        the stage done. Either the whole stage lands or none of it does.
         """
         spec = lease.STAGE_SPECS.get(stage_name)
         if spec is None:
@@ -192,7 +193,7 @@ def build_jobs_router() -> APIRouter:
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="stale lease epoch")
 
-            parsed = _parse_result(spec, result)
+            parsed = _parse_result(spec, result_file)
             _save_artifacts(stage_name, content_hash, files)
 
             new_video_id = lease.persist_stage(
@@ -229,17 +230,17 @@ def build_jobs_router() -> APIRouter:
     return router
 
 
-def _parse_result(spec: lease.StageSpec, result: str):
-    """Parse the multipart ``result`` field into the stage's StageResult model.
+def _parse_result(spec: lease.StageSpec, result_file: UploadFile | None):
+    """Parse the optional multipart ``result_file`` into the stage's StageResult model.
 
-    No-DB stages (locate_media) carry no model and accept an empty/absent ``result`` — we hand
-    persist a None the no-op ignores. Malformed JSON or a payload that fails model validation is
-    a client error (400), not a server fault.
+    No-DB stages (locate_media) carry no model and accept an absent ``result_file`` — we hand
+    persist a None the no-op ignores. Oversized result files are rejected 413; malformed JSON or a
+    payload that fails model validation is a client error (400), not a server fault.
     """
     if spec.model is None:
         return None
-    text = (result or "").strip()
-    if not text:
+    text = _read_result_text(result_file)
+    if not text.strip():
         raise HTTPException(status_code=400, detail="missing result payload for this stage")
     try:
         payload = json.loads(text)
@@ -249,3 +250,19 @@ def _parse_result(spec: lease.StageSpec, result: str):
         return spec.model.model_validate(payload)
     except Exception as exc:  # noqa: BLE001 - surface validation failure as a 400
         raise HTTPException(status_code=400, detail=f"result failed validation: {exc}") from exc
+
+
+def _read_result_text(result_file: UploadFile | None) -> str:
+    if result_file is None:
+        return ""
+    max_bytes = get_settings().stage_result_max_bytes
+    payload = result_file.file.read(max_bytes + 1)
+    if len(payload) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"stage result file exceeded maximum size of {max_bytes} bytes",
+        )
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid result UTF-8: {exc}") from exc

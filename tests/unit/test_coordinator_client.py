@@ -113,12 +113,18 @@ def test_push_stage_sends_multipart_and_bearer():
     assert ok is True
     call = fake.calls[0]
     assert call["url"] == f"{BASE}/jobs/9/stage/frames"
-    # lease_epoch + result ride as form fields.
+    # lease_epoch rides as a form field; result_json rides as the JSON file part.
     assert call["data"]["lease_epoch"] == "3"
-    assert call["data"]["result"] == '{"stage":"frames"}'
-    # Each artifact is attached under the multipart field name "files".
-    assert len(call["files"]) == 2
-    for (field, payload), (name, content) in zip(call["files"], files, strict=True):
+    assert "result" not in call["data"]
+    # result_json is attached as a JSON file part first.
+    assert len(call["files"]) == 3
+    field, payload = call["files"][0]
+    assert field == "result_file"
+    assert payload[0] == "result.json"
+    assert payload[1] == b'{"stage":"frames"}'
+    assert payload[2] == "application/json"
+    # Artifacts follow under the multipart field name "files".
+    for (field, payload), (name, content) in zip(call["files"][1:], files, strict=True):
         assert field == "files"
         assert payload[0] == name
         assert payload[1] == content
@@ -131,7 +137,6 @@ def test_push_stage_empty_result_and_no_files():
     ok = client.push_stage(9, "locate_media", 3, "", [])
     assert ok is True
     call = fake.calls[0]
-    assert call["data"]["result"] == ""
     assert call["data"]["lease_epoch"] == "3"
     assert call["files"] == []
 

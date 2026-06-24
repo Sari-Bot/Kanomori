@@ -10,6 +10,7 @@ suite in tests/integration/test_coordinator.py.
 from __future__ import annotations
 
 import contextlib
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -224,7 +225,8 @@ def test_stage_push_409_on_stale_epoch(set_token, monkeypatch):
     client = TestClient(app_module.create_app())
     resp = client.post(
         "/jobs/5/stage/parse_transcript",
-        data={"lease_epoch": "2", "result": "{}"},
+        data={"lease_epoch": "2"},
+        files={"result_file": ("result.json", b"{}", "application/json")},
         headers=_auth(),
     )
     assert resp.status_code == 409
@@ -233,7 +235,223 @@ def test_stage_push_409_on_stale_epoch(set_token, monkeypatch):
 def test_stage_push_404_for_unknown_stage(set_token, app_client):
     resp = app_client.post(
         "/jobs/5/stage/not_a_stage",
-        data={"lease_epoch": "1", "result": "{}"},
+        data={"lease_epoch": "1"},
+        files={"result_file": ("result.json", b"{}", "application/json")},
         headers=_auth(),
     )
     assert resp.status_code == 404
+
+
+def test_stage_push_400_when_model_stage_missing_result_file(set_token, monkeypatch):
+    from kanomori.api import jobs as jobs_module
+
+    class _FreshConn:
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchone(self_inner):
+                    return (None, None, 2)
+
+            return _Cur()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    @contextlib.contextmanager
+    def fake_connection():
+        yield _FreshConn()
+
+    monkeypatch.setattr(jobs_module, "connection", fake_connection)
+
+    from kanomori.api import app as app_module
+
+    client = TestClient(app_module.create_app())
+    resp = client.post("/jobs/5/stage/parse_transcript", data={"lease_epoch": "2"}, headers=_auth())
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "missing result payload for this stage"
+
+
+def test_stage_push_400_for_invalid_result_json_file(set_token, monkeypatch):
+    from kanomori.api import jobs as jobs_module
+
+    class _FreshConn:
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchone(self_inner):
+                    return (None, None, 2)
+
+            return _Cur()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    @contextlib.contextmanager
+    def fake_connection():
+        yield _FreshConn()
+
+    monkeypatch.setattr(jobs_module, "connection", fake_connection)
+
+    from kanomori.api import app as app_module
+
+    client = TestClient(app_module.create_app())
+    resp = client.post(
+        "/jobs/5/stage/parse_transcript",
+        data={"lease_epoch": "2"},
+        files={"result_file": ("result.json", b"{", "application/json")},
+        headers=_auth(),
+    )
+    assert resp.status_code == 400
+    assert "invalid result JSON" in resp.json()["detail"]
+
+
+def test_stage_push_400_for_invalid_result_utf8(set_token, monkeypatch):
+    from kanomori.api import jobs as jobs_module
+
+    class _FreshConn:
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchone(self_inner):
+                    return (None, None, 2)
+
+            return _Cur()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    @contextlib.contextmanager
+    def fake_connection():
+        yield _FreshConn()
+
+    monkeypatch.setattr(jobs_module, "connection", fake_connection)
+
+    from kanomori.api import app as app_module
+
+    client = TestClient(app_module.create_app())
+    resp = client.post(
+        "/jobs/5/stage/parse_transcript",
+        data={"lease_epoch": "2"},
+        files={"result_file": ("result.json", b"\xff", "application/json")},
+        headers=_auth(),
+    )
+    assert resp.status_code == 400
+    assert "invalid result UTF-8" in resp.json()["detail"]
+
+
+def test_stage_push_413_when_result_file_exceeds_limit(set_token, monkeypatch):
+    from kanomori.api import jobs as jobs_module
+
+    monkeypatch.setenv("KANOMORI_STAGE_RESULT_MAX_BYTES", "32")
+    get_settings.cache_clear()
+
+    class _FreshConn:
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchone(self_inner):
+                    return (None, None, 2)
+
+            return _Cur()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    @contextlib.contextmanager
+    def fake_connection():
+        yield _FreshConn()
+
+    monkeypatch.setattr(jobs_module, "connection", fake_connection)
+
+    from kanomori.api import app as app_module
+
+    body = json.dumps({"stage": "parse_transcript", "segments": []}).encode("utf-8")
+    client = TestClient(app_module.create_app())
+    resp = client.post(
+        "/jobs/5/stage/parse_transcript",
+        data={"lease_epoch": "2"},
+        files={"result_file": ("result.json", body, "application/json")},
+        headers=_auth(),
+    )
+    assert resp.status_code == 413
+    assert resp.json()["detail"] == "stage result file exceeded maximum size of 32 bytes"
+
+
+def test_stage_push_accepts_large_result_file_beyond_old_form_limit(set_token, monkeypatch):
+    from kanomori.api import jobs as jobs_module
+
+    class _FreshConn:
+        def __init__(self):
+            self.persisted = None
+
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchone(self_inner):
+                    return (None, None, 2)
+
+            return _Cur()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    holder = {}
+
+    @contextlib.contextmanager
+    def fake_connection():
+        conn = _FreshConn()
+        holder["conn"] = conn
+        yield conn
+
+    monkeypatch.setattr(jobs_module, "connection", fake_connection)
+
+    def fake_persist_stage(conn, stage_name, result, **kwargs):
+        conn.persisted = (stage_name, result)
+        return None
+
+    monkeypatch.setattr(lease, "persist_stage", fake_persist_stage)
+    monkeypatch.setattr(
+        lease,
+        "mark_stage_done",
+        lambda conn, job_id, lease_epoch, stage_name: True,
+    )
+
+    from kanomori.api import app as app_module
+
+    payload = {
+        "stage": "parse_transcript",
+        "segments": [
+            {
+                "seq": idx,
+                "start_sec": float(idx),
+                "end_sec": float(idx + 1),
+                "text": "a" * 40,
+                "text_norm": "a" * 40,
+                "embedding": "x" * 5464,
+            }
+            for idx in range(200)
+        ],
+    }
+    body = json.dumps(payload).encode("utf-8")
+    assert len(body) > 1024 * 1024
+
+    client = TestClient(app_module.create_app())
+    resp = client.post(
+        "/jobs/5/stage/parse_transcript",
+        data={"lease_epoch": "2"},
+        files={"result_file": ("result.json", body, "application/json")},
+        headers=_auth(),
+    )
+    assert resp.status_code == 200
+    assert holder["conn"].persisted[0] == "parse_transcript"
+    assert len(holder["conn"].persisted[1].segments) == 200

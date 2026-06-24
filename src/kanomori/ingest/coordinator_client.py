@@ -91,18 +91,23 @@ class CoordinatorClient:
     ) -> bool:
         """Push one stage's result + artifacts (multipart). ``False`` on 409, else raise on error.
 
-        ``result_json`` rides as the ``result`` form field ("" for the no-model locate_media
-        stage); ``lease_epoch`` as the ``lease_epoch`` form field. Each ``(name, bytes)`` in
-        ``files`` is attached under the multipart field name ``files`` (the JPEGs / the SRT),
-        named exactly as the stage's ArtifactRef so the coordinator writes them to their
+        ``result_json`` rides as the optional ``result_file`` JSON upload (omitted for the no-model
+        locate_media stage); ``lease_epoch`` as the ``lease_epoch`` form field. Each ``(name,
+        bytes)`` in ``files`` is attached under the multipart field name ``files`` (the JPEGs /
+        the SRT), named exactly as the stage's ArtifactRef so the coordinator writes them to their
         deterministic on-disk paths.
         """
-        multipart = [
+        multipart = []
+        if result_json:
+            multipart.append(
+                ("result_file", ("result.json", result_json.encode("utf-8"), "application/json"))
+            )
+        multipart.extend(
             ("files", (name, content, "application/octet-stream")) for name, content in files
-        ]
+        )
         resp = self._client.post(
             self._url(f"{int(job_id)}/stage/{stage_name}"),
-            data={"lease_epoch": str(int(lease_epoch)), "result": result_json},
+            data={"lease_epoch": str(int(lease_epoch))},
             files=multipart,
             headers=self._headers(),
         )

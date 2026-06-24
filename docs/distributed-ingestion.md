@@ -336,8 +336,12 @@ The single-machine path still calls `run(conn, ctx)` and remains valid. Distribu
 The `/jobs/{job_id}/stage/{stage_name}` endpoint accepts:
 
 - form field `lease_epoch`
-- form field `result` containing the JSON-serialized `StageResult`
+- optional file field `result_file` containing the UTF-8 JSON-serialized `StageResult`
 - multipart file field `files` for binary artifacts such as frame JPEGs or the SRT
+
+Model-bearing stages upload `result_file`; model-less stages such as `locate_media` omit it.
+The coordinator enforces a stage-result upload cap via `KANOMORI_STAGE_RESULT_MAX_BYTES`
+(default `67108864` bytes) and returns `413` when exceeded.
 
 Artifacts are written to deterministic paths:
 

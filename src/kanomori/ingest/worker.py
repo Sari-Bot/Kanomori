@@ -366,14 +366,14 @@ def run_one_distributed(
                     content_hash = result.content_hash
                     ctx.content_hash = content_hash
 
+                result_json = _result_json(result)
                 files = _gather_artifacts(name, result, content_hash)
                 log.detail(
                     f"stage detail job={job_id} stage={name} "
-                    f"outcome={outcome_label} artifacts={len(files)}"
+                    f"outcome={outcome_label} result_bytes={len(result_json.encode('utf-8'))} "
+                    f"artifacts={len(files)}"
                 )
-                if not client.push_stage(
-                    job_id, name, lease_epoch, _result_json(result), files
-                ):
+                if not client.push_stage(job_id, name, lease_epoch, result_json, files):
                     log.error(
                         f"lease-lost job={job_id} epoch={lease_epoch} "
                         f"stage={name} reason=push-409"
