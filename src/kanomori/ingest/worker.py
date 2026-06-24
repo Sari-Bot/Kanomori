@@ -374,7 +374,6 @@ def run_one_distributed(
                 if not client.push_stage(
                     job_id, name, lease_epoch, _result_json(result), files
                 ):
-                    log.error(f"body: {_result_json(result)}")
                     log.error(
                         f"lease-lost job={job_id} epoch={lease_epoch} "
                         f"stage={name} reason=push-409"

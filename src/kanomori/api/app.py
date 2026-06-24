@@ -14,13 +14,17 @@ real BGE-M3 embedder lazily inside the lifespan.
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from kanomori.config import get_settings
 from kanomori.db import close_pool, connection
@@ -43,6 +47,8 @@ _image_embedder = None
 _ocr_reader = None
 SCREENSHOT_FILE = File(...)
 SCREENSHOT_K = Form(10)
+MAX_LOGGED_BODY_BYTES = 4096
+logger = logging.getLogger(__name__)
 
 
 def get_embedder():
@@ -85,8 +91,50 @@ async def lifespan(app: FastAPI):
     close_pool()
 
 
+async def _body_preview(request: Request) -> str:
+    try:
+        body = await request.body()
+    except RuntimeError as exc:
+        return f"<unavailable: {exc}>"
+    if not body:
+        return "<empty>"
+    text = body[:MAX_LOGGED_BODY_BYTES].decode("utf-8", errors="replace")
+    if len(body) <= MAX_LOGGED_BODY_BYTES:
+        return text
+    omitted = len(body) - MAX_LOGGED_BODY_BYTES
+    return f"{text}... <truncated {omitted} bytes>"
+
+
+def _has_body_error(exc: RequestValidationError) -> bool:
+    return any((err.get("loc") or [None])[0] == "body" for err in exc.errors())
+
+
+async def _log_client_error(request: Request, *, status_code: int, detail: object) -> None:
+    logger.warning(
+        "client request error status=%s method=%s path=%s content_type=%s body=%s detail=%s",
+        status_code,
+        request.method,
+        request.url.path,
+        request.headers.get("content-type", ""),
+        await _body_preview(request),
+        detail,
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Kanomori", lifespan=lifespan)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def log_http_exception(request: Request, exc: StarletteHTTPException):
+        if exc.status_code == 400:
+            await _log_client_error(request, status_code=exc.status_code, detail=exc.detail)
+        return await http_exception_handler(request, exc)
+
+    @app.exception_handler(RequestValidationError)
+    async def log_validation_exception(request: Request, exc: RequestValidationError):
+        if _has_body_error(exc):
+            await _log_client_error(request, status_code=422, detail=exc.errors())
+        return await request_validation_exception_handler(request, exc)
 
     # Coordinator API: remote workers claim/heartbeat/push-stage/complete jobs (bearer-auth'd).
     from kanomori.api.jobs import build_jobs_router
