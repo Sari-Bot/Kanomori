@@ -25,6 +25,7 @@ import argparse
 import os
 import re
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -40,6 +41,24 @@ from kanomori.media_source import MediaSource, get_media_source, iter_manifest
 # permanently-broken job must not loop forever. Once a failed job reaches MAX_ATTEMPTS it is
 # left in 'failed' and no longer claimed; an operator can reset attempts to requeue it.
 MAX_ATTEMPTS = 3
+
+
+class _WorkerLog:
+    """Minimal line-oriented worker logging with optional verbose detail lines."""
+
+    def __init__(self, worker_id: str, *, verbose: bool = False) -> None:
+        self.worker_id = worker_id
+        self.verbose = verbose
+
+    def progress(self, message: str) -> None:
+        print(f"[worker] {message}", flush=True)
+
+    def detail(self, message: str) -> None:
+        if self.verbose:
+            self.progress(message)
+
+    def error(self, message: str) -> None:
+        print(f"[worker] {message}", file=sys.stderr, flush=True)
 
 
 # =========================================================================================
@@ -228,6 +247,7 @@ class _Heartbeat:
         self._interval = max(1.0, lease_seconds / 3)
         self._stop = threading.Event()
         self.fenced = threading.Event()
+        self.reason: str | None = None
         self._thread = threading.Thread(target=self._run, name="coord-heartbeat", daemon=True)
 
     def _run(self) -> None:
@@ -236,6 +256,7 @@ class _Heartbeat:
         while not self._stop.wait(self._interval):
             try:
                 if not self._client.heartbeat(self._job_id, self._lease_epoch, self._lease_seconds):
+                    self.reason = "heartbeat-409"
                     self.fenced.set()
                     return
             except Exception:  # noqa: BLE001 - a transient heartbeat error shouldn't kill the run
@@ -257,6 +278,8 @@ def run_one_distributed(
     lease_seconds: int,
     *,
     cache_dir: Path | None = None,
+    verbose: bool = False,
+    logger: _WorkerLog | None = None,
 ) -> bool:
     """Claim one job from the coordinator and run it remotely. True if a job ran, False if idle.
 
@@ -265,8 +288,10 @@ def run_one_distributed(
     coordinator -> complete. A push returning False (HTTP 409) means the lease was lost: stop
     immediately without completing. Any exception is reported via ``fail`` (best-effort).
     """
+    log = logger or _WorkerLog(worker_id, verbose=verbose)
     claimed = client.claim(worker_id, lease_seconds)
     if claimed is None:
+        log.progress(f"idle worker={worker_id}")
         return False
 
     job_id = claimed["job_id"]
@@ -282,6 +307,18 @@ def run_one_distributed(
     try:
         store_path = _source_store_path(request)
         local = _cache_dest(cache_dir, store_path)
+        language = request.get("language", "japanese")
+        log.progress(f"claimed job={job_id} epoch={lease_epoch} source={store_path}")
+        log.detail(
+            "detail claimed "
+            f"job={job_id} epoch={lease_epoch} content_hash={content_hash or '-'} "
+            f"stages_done={','.join(sorted(stages_done)) or '-'} "
+            f"separate={request.get('separate', False)} language={language} "
+            f"cache_path={local}"
+        )
+        source_action = "reuse" if local.exists() else "fetch"
+        log.progress(f"source job={job_id} action={source_action} source={store_path}")
+        log.detail(f"source detail job={job_id} action={source_action} cache_path={local}")
         if not local.exists():
             local.parent.mkdir(parents=True, exist_ok=True)
             source.fetch(store_path, local)
@@ -292,19 +329,28 @@ def run_one_distributed(
         with _Heartbeat(client, job_id, lease_epoch, lease_seconds) as hb:
             for name, module in STAGES:
                 if name in stages_done:
+                    log.progress(f"stage resume-skip job={job_id} stage={name}")
                     continue
                 if hb.fenced.is_set():
+                    log.error(
+                        f"lease-lost job={job_id} epoch={lease_epoch} "
+                        f"reason={hb.reason or 'heartbeat'}"
+                    )
                     return True  # lease lost mid-run; stop without completing
 
+                log.progress(f"stage start job={job_id} stage={name}")
                 outcome = module.compute(ctx)
                 if outcome == "skipped":
                     result = _empty_result_for(name)
+                    outcome_label = "skipped"
                 elif outcome is None and STAGE_SPECS[name].model is not None:
                     # A model-bearing stage that returned nothing: push an empty result so the
                     # coordinator still marks it done (defensive; the real stages don't do this).
                     result = _empty_result_for(name)
+                    outcome_label = "empty"
                 else:
                     result = outcome
+                    outcome_label = "no-model" if STAGE_SPECS[name].model is None else "result"
 
                 # register is the first stage to learn content_hash; capture it for artifact paths.
                 if name == "register" and result is not None:
@@ -312,14 +358,35 @@ def run_one_distributed(
                     ctx.content_hash = content_hash
 
                 files = _gather_artifacts(name, result, content_hash)
+                log.detail(
+                    f"stage detail job={job_id} stage={name} "
+                    f"outcome={outcome_label} artifacts={len(files)}"
+                )
                 if not client.push_stage(
                     job_id, name, lease_epoch, _result_json(result), files
                 ):
+                    log.error(
+                        f"lease-lost job={job_id} epoch={lease_epoch} "
+                        f"stage={name} reason=push-409"
+                    )
                     return True  # 409: lease lost — stop, don't complete
+                log.progress(f"stage done job={job_id} stage={name}")
+                log.detail(f"push ok job={job_id} stage={name} artifacts={len(files)}")
 
-        client.complete(job_id, lease_epoch)
+        if not client.complete(job_id, lease_epoch):
+            log.error(f"lease-lost job={job_id} epoch={lease_epoch} reason=complete-409")
+            return True
+        log.progress(f"complete job={job_id}")
     except Exception as exc:  # noqa: BLE001 - report any failure to the coordinator and move on
-        client.fail(job_id, lease_epoch, str(exc))
+        error = str(exc)
+        log.error(f"failed job={job_id} error={error}")
+        fail_status = "sent"
+        try:
+            reported = client.fail(job_id, lease_epoch, error)
+            fail_status = "sent" if reported else "fenced"
+        except Exception as report_exc:  # noqa: BLE001 - best-effort only
+            fail_status = f"error:{report_exc}"
+        log.detail(f"fail-report job={job_id} status={fail_status}")
     return True
 
 
@@ -447,6 +514,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=5.0,
         help="seconds to sleep when the coordinator is idle (default 5.0)",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="print detailed distributed-worker debug lines in addition to progress output",
+    )
     return parser
 
 
@@ -469,10 +541,18 @@ def main(argv: list[str] | None = None) -> None:
     settings = get_settings()
     client = CoordinatorClient(settings.coordinator_url, settings.coordinator_token)
     worker_id = args.worker_id or _default_worker_id()
+    logger = _WorkerLog(worker_id, verbose=args.verbose)
 
-    print(f"kanomori distributed worker {worker_id} started; polling {settings.coordinator_url}")
+    logger.progress(f"startup worker={worker_id} coordinator={settings.coordinator_url}")
     while True:
-        ran = run_one_distributed(client, source, worker_id, args.lease_seconds)
+        ran = run_one_distributed(
+            client,
+            source,
+            worker_id,
+            args.lease_seconds,
+            verbose=args.verbose,
+            logger=logger,
+        )
         if args.once:
             break
         if not ran:

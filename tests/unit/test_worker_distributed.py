@@ -157,6 +157,21 @@ def test_idle_returns_false_when_no_job(cache_dir):
     assert client.completed == []
 
 
+def test_main_logs_startup_and_idle(capsys, monkeypatch, tmp_path):
+    source = FakeSource()
+    monkeypatch.setattr(worker, "get_media_source", lambda: source)
+    monkeypatch.setattr(worker, "CoordinatorClient", lambda *a, **k: FakeClient(claim_result=None))
+    monkeypatch.setattr(worker, "get_settings", lambda: _Settings(tmp_path))
+    monkeypatch.setattr(worker, "_default_worker_id", lambda: "worker-123")
+
+    worker.main(["--once"])
+
+    captured = capsys.readouterr()
+    assert "[worker] startup worker=worker-123 coordinator=http://unused" in captured.out
+    assert "[worker] idle worker=worker-123" in captured.out
+    assert captured.err == ""
+
+
 def test_runs_all_stages_in_order_then_completes(patch_computes, cache_dir):
     source = FakeSource()
     client = FakeClient(claim_result=_claim())
@@ -173,6 +188,27 @@ def test_runs_all_stages_in_order_then_completes(patch_computes, cache_dir):
     assert all(epoch == 3 for _s, epoch, _r, _n in client.pushed)
 
 
+def test_success_logs_progress_without_verbose_details(
+    patch_computes, cache_dir, capsys, monkeypatch
+):
+    monkeypatch.setattr(worker, "make_embedder", lambda: object())
+    source = FakeSource()
+    client = FakeClient(claim_result=_claim())
+
+    ran = worker.run_one_distributed(client, source, "w1", 120, cache_dir=cache_dir)
+
+    assert ran is True
+    captured = capsys.readouterr()
+    assert "[worker] claimed job=42 epoch=3 source=kano/clip.mp4" in captured.out
+    assert "[worker] source job=42 action=fetch source=kano/clip.mp4" in captured.out
+    assert "[worker] stage start job=42 stage=register" in captured.out
+    assert "[worker] stage done job=42 stage=image_embed" in captured.out
+    assert "[worker] complete job=42" in captured.out
+    assert "content_hash=" not in captured.out
+    assert "artifacts=" not in captured.out
+    assert captured.err == ""
+
+
 def test_resume_skips_stages_already_done(patch_computes, cache_dir):
     client = FakeClient(
         claim_result=_claim(
@@ -186,6 +222,21 @@ def test_resume_skips_stages_already_done(patch_computes, cache_dir):
     assert "transcribe" not in pushed_stages
     assert pushed_stages[0] == "parse_transcript"
     assert client.completed == [42]
+
+
+def test_resume_logs_skipped_stages(patch_computes, cache_dir, capsys):
+    client = FakeClient(
+        claim_result=_claim(
+            stages_done=["register", "locate_media", "transcribe"], content_hash=CONTENT_HASH
+        )
+    )
+
+    worker.run_one_distributed(client, FakeSource(), "w1", 120, cache_dir=cache_dir)
+
+    captured = capsys.readouterr()
+    assert "[worker] stage resume-skip job=42 stage=register" in captured.out
+    assert "[worker] stage resume-skip job=42 stage=locate_media" in captured.out
+    assert "[worker] stage resume-skip job=42 stage=transcribe" in captured.out
 
 
 def test_locate_media_pushes_empty_result_string(patch_computes, cache_dir):
@@ -209,6 +260,16 @@ def test_409_push_aborts_before_complete(patch_computes, cache_dir):
     assert client.failed == []
 
 
+def test_409_push_logs_lease_lost_and_not_complete(patch_computes, cache_dir, capsys):
+    client = FakeClient(claim_result=_claim(), push_returns={"transcribe": False})
+
+    worker.run_one_distributed(client, FakeSource(), "w1", 120, cache_dir=cache_dir)
+
+    captured = capsys.readouterr()
+    assert "[worker] lease-lost job=42 epoch=3 stage=transcribe reason=push-409" in captured.err
+    assert "[worker] complete job=42" not in captured.out
+
+
 def test_exception_triggers_fail(patch_computes, cache_dir, monkeypatch):
     from kanomori.ingest.stages import parse_transcript
 
@@ -227,6 +288,21 @@ def test_exception_triggers_fail(patch_computes, cache_dir, monkeypatch):
     assert "embedder exploded" in error
 
 
+def test_exception_logs_failure_summary(patch_computes, cache_dir, capsys, monkeypatch):
+    from kanomori.ingest.stages import parse_transcript
+
+    def boom(ctx):
+        raise RuntimeError("embedder exploded")
+
+    monkeypatch.setattr(parse_transcript, "compute", boom)
+    client = FakeClient(claim_result=_claim())
+
+    worker.run_one_distributed(client, FakeSource(), "w1", 120, cache_dir=cache_dir)
+
+    captured = capsys.readouterr()
+    assert "[worker] failed job=42 error=embedder exploded" in captured.err
+
+
 def test_self_reclaim_cache_skips_refetch(patch_computes, cache_dir):
     """A second run for the same source path reuses the cached local file (no re-fetch)."""
     source = FakeSource()
@@ -238,6 +314,46 @@ def test_self_reclaim_cache_skips_refetch(patch_computes, cache_dir):
     worker.run_one_distributed(client2, source, "w1", 120, cache_dir=cache_dir)
     # Cache hit: fetch not called a second time.
     assert source.fetched == ["kano/clip.mp4"]
+
+
+def test_verbose_logs_claim_cache_and_artifact_details(
+    patch_computes, cache_dir, capsys, monkeypatch
+):
+    monkeypatch.setattr(worker, "make_embedder", lambda: object())
+    local = worker._cache_dest(cache_dir, "kano/clip.mp4")
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_bytes(b"cached")
+    client = FakeClient(
+        claim_result=_claim(stages_done=["register"], content_hash=CONTENT_HASH)
+    )
+
+    ran = worker.run_one_distributed(
+        client,
+        FakeSource(),
+        "w1",
+        120,
+        cache_dir=cache_dir,
+        verbose=True,
+    )
+
+    assert ran is True
+    captured = capsys.readouterr()
+    assert (
+        "[worker] detail claimed job=42 epoch=3 content_hash="
+        f"{CONTENT_HASH} stages_done=register separate=False language=japanese"
+        in captured.out
+    )
+    assert f"cache_path={local}" in captured.out
+    assert "[worker] source detail job=42 action=reuse cache_path=" in captured.out
+    assert (
+        "[worker] stage detail job=42 stage=locate_media outcome=no-model artifacts=0"
+        in captured.out
+    )
+    assert (
+        "[worker] stage detail job=42 stage=transcribe outcome=result artifacts=1"
+        in captured.out
+    )
+    assert "[worker] push ok job=42 stage=transcribe artifacts=1" in captured.out
 
 
 # --- --compute-only ----------------------------------------------------------------------
