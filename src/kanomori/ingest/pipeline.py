@@ -11,6 +11,7 @@ re-runs); ``run_full`` is the normal entry point that respects stage status.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -49,6 +50,7 @@ class IngestContext:
     audio_path: str | None = None
     srt_path: str | None = None
     embedder: object = field(default=None, repr=False)
+    stage_log: Callable[[str, str, str], None] | None = field(default=None, repr=False)
 
 
 # Stage name -> module exposing run(conn, ctx). Order matters (resumable DAG).

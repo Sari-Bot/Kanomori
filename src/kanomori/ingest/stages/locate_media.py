@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 from kanomori.ingest.artifacts import artifact_dir
+from kanomori.subprocess_stream import run_logged
 
 # Substrings (matched case-insensitively, after lowering) that mark a karaoke / singing stream.
 # Mix of Japanese and romaji terms common in 鹿乃 / VTuber stream titles.
@@ -23,7 +24,7 @@ _KARAOKE_KEYWORDS = ("歌枠", "歌って", "karaoke", "弾き語り", "cover", 
 
 def _run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Indirection over subprocess.run so tests can inject a fake runner."""
-    return subprocess.run(argv, capture_output=True, text=True, **kwargs)
+    return run_logged(argv, **kwargs)
 
 
 def decide_separate(title: str | None, *, explicit: bool) -> bool:
@@ -62,7 +63,11 @@ def compute(ctx) -> None:
     out_wav = out_dir / "audio.wav"
 
     argv = build_ffmpeg_extract_argv(Path(ctx.media_path), out_wav)
-    result = _run(argv)
+    stage_log = getattr(ctx, "stage_log", None)
+    log_output = None
+    if stage_log is not None:
+        log_output = lambda stream, line: stage_log("locate_media", stream, line)
+    result = _run(argv, log_output=log_output)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg audio extraction failed: {(result.stderr or '')[:300]}")
 

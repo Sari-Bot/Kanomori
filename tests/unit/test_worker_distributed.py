@@ -356,6 +356,34 @@ def test_verbose_logs_claim_cache_and_artifact_details(
     assert "[worker] push ok job=42 stage=transcribe artifacts=1" in captured.out
 
 
+def test_verbose_relays_live_stage_output(patch_computes, cache_dir, capsys, monkeypatch):
+    from kanomori.ingest.artifacts import srt_path_for
+    from kanomori.ingest.stages import transcribe
+
+    def verbose_transcribe(ctx):
+        callback = getattr(ctx, "stage_log", None)
+        if callback is not None:
+            callback("transcribe", "stdout", "segment 1/4")
+        srt = srt_path_for(CONTENT_HASH)
+        srt.parent.mkdir(parents=True, exist_ok=True)
+        srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
+        return TranscribeResult()
+
+    monkeypatch.setattr(transcribe, "compute", verbose_transcribe)
+
+    worker.run_one_distributed(
+        FakeClient(claim_result=_claim()),
+        FakeSource(),
+        "w1",
+        120,
+        cache_dir=cache_dir,
+        verbose=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "[worker] stage log job=42 stage=transcribe stream=stdout line=segment 1/4" in captured.out
+
+
 # --- --compute-only ----------------------------------------------------------------------
 
 

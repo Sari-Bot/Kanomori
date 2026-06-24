@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from kanomori.config import get_settings
+from kanomori.subprocess_stream import LogOutput, run_logged
 
 
 class KitsError(RuntimeError):
@@ -58,6 +59,7 @@ def transcribe(
     language: str = "japanese",
     timeout: float | None = None,
     runner: Runner | None = None,
+    log_output: LogOutput | None = None,
 ) -> Path:
     """Run KITS to transcribe ``audio_path`` to ``out_srt``; return ``out_srt`` on success.
 
@@ -70,8 +72,6 @@ def transcribe(
         kits_dir = settings.kits_dir
     if timeout is None:
         timeout = settings.kits_timeout
-    if runner is None:
-        runner = subprocess.run
 
     # KITS runs with cwd=kits_dir, so relative -i/-o paths would resolve against KITS's cwd
     # (not ours) and KITS can't find the audio or create the SRT. Resolve to absolute so the
@@ -84,13 +84,17 @@ def transcribe(
     )
     out_srt.parent.mkdir(parents=True, exist_ok=True)
 
-    result = runner(
-        argv,
-        cwd=kits_dir,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    if runner is None:
+        result = run_logged(argv, cwd=kits_dir, timeout=timeout, log_output=log_output)
+    else:
+        result = runner(
+            argv,
+            cwd=kits_dir,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            log_output=log_output,
+        )
 
     # Always persist the full, untruncated KITS output next to the SRT. KITS crashes deep in a
     # transformers/torch stack with long tracebacks; without this artifact the actual cause is

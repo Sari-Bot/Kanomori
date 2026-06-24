@@ -7,13 +7,14 @@ from pathlib import Path
 
 from kanomori.ingest.artifacts import frame_dir_for, frame_path_for
 from kanomori.ingest.stage_result import FrameRow, FramesResult
+from kanomori.subprocess_stream import run_logged
 
 DEFAULT_INTERVAL_SEC = 8.0
 DEDUP_TOLERANCE_SEC = 0.25
 
 
 def _run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, **kwargs)
+    return run_logged(argv, **kwargs)
 
 
 def plan_sample_timestamps(
@@ -42,7 +43,7 @@ def plan_sample_timestamps(
     return out
 
 
-def probe_duration_sec(media_path: Path) -> float | None:
+def probe_duration_sec(media_path: Path, *, log_output=None) -> float | None:
     stream = _run(
         [
             "ffprobe", "-v", "error",
@@ -50,7 +51,8 @@ def probe_duration_sec(media_path: Path) -> float | None:
             "-show_entries", "stream=index",
             "-of", "csv=p=0",
             str(media_path),
-        ]
+        ],
+        log_output=log_output,
     )
     if stream.returncode != 0 or not (stream.stdout or "").strip():
         return None
@@ -61,7 +63,8 @@ def probe_duration_sec(media_path: Path) -> float | None:
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
             str(media_path),
-        ]
+        ],
+        log_output=log_output,
     )
     if result.returncode != 0:
         return None
@@ -84,14 +87,15 @@ def detect_scene_timestamps(media_path: Path) -> list[float]:
     return [start.get_seconds() for start, _end in scenes[1:]]
 
 
-def extract_frame(media_path: Path, ts_sec: float, out_path: Path) -> None:
+def extract_frame(media_path: Path, ts_sec: float, out_path: Path, *, log_output=None) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     result = _run(
         [
             "ffmpeg", "-ss", f"{ts_sec:.3f}", "-i", str(media_path),
             "-frames:v", "1", "-vf", "scale='min(640,iw)':-2",
             "-q:v", "4", str(out_path), "-y",
-        ]
+        ],
+        log_output=log_output,
     )
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg frame extraction failed: {(result.stderr or '')[:300]}")
@@ -114,7 +118,11 @@ def compute(ctx):
     run_full checks — when there is no video stream or no sampleable timestamps.
     """
     media = Path(ctx.media_path)
-    duration = probe_duration_sec(media)
+    stage_log = getattr(ctx, "stage_log", None)
+    log_output = None
+    if stage_log is not None:
+        log_output = lambda stream, line: stage_log("frames", stream, line)
+    duration = probe_duration_sec(media, log_output=log_output)
     if duration is None:
         return "skipped"
 
@@ -127,7 +135,7 @@ def compute(ctx):
     rows: list[FrameRow] = []
     for ts in timestamps:
         frame_path = frame_path_for(ctx.content_hash, ts)
-        extract_frame(media, ts, frame_path)
+        extract_frame(media, ts, frame_path, log_output=log_output)
         rows.append(FrameRow(ts_sec=ts, artifact=frame_path.name))
     return FramesResult(frames=rows, scene_timestamps=scene_times)
 

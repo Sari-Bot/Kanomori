@@ -258,17 +258,17 @@ def test_parse_transcript_persist_deletes_then_inserts_with_tsvector() -> None:
 
 
 def test_frames_compute_skips_when_no_duration(monkeypatch) -> None:
-    monkeypatch.setattr(frames, "probe_duration_sec", lambda media: None)
+    monkeypatch.setattr(frames, "probe_duration_sec", lambda media, **kwargs: None)
     ctx = SimpleNamespace(media_path="audio.mp3", content_hash="h")
     assert frames.compute(ctx) == "skipped"
 
 
 def test_frames_compute_extracts_and_returns_framesresult(media_root, monkeypatch) -> None:
-    monkeypatch.setattr(frames, "probe_duration_sec", lambda media: 20.0)
+    monkeypatch.setattr(frames, "probe_duration_sec", lambda media, **kwargs: 20.0)
     monkeypatch.setattr(frames, "detect_scene_timestamps", lambda media: [3.1])
     extracted: list[float] = []
 
-    def fake_extract(media, ts, out_path):
+    def fake_extract(media, ts, out_path, **kwargs):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(b"jpeg")
         extracted.append(ts)

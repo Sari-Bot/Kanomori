@@ -179,6 +179,13 @@ def _context_from_request(request: dict, media_path: str, job_id: int, embedder)
     )
 
 
+def _make_stage_log(job_id: int, logger: _WorkerLog):
+    def emit(stage: str, stream: str, line: str) -> None:
+        logger.detail(f"stage log job={job_id} stage={stage} stream={stream} line={line}")
+
+    return emit
+
+
 def _empty_result_for(stage_name: str):
     """A valid-but-empty StageResult for a stage that compute() reported as "skipped".
 
@@ -323,8 +330,10 @@ def run_one_distributed(
             local.parent.mkdir(parents=True, exist_ok=True)
             source.fetch(store_path, local)
 
+        stage_log = _make_stage_log(job_id, log) if log.verbose else None
         ctx = _context_from_request(request, str(local), job_id, make_embedder())
         ctx.content_hash = content_hash
+        ctx.stage_log = stage_log
 
         with _Heartbeat(client, job_id, lease_epoch, lease_seconds) as hb:
             for name, module in STAGES:
@@ -365,6 +374,7 @@ def run_one_distributed(
                 if not client.push_stage(
                     job_id, name, lease_epoch, _result_json(result), files
                 ):
+                    log.error(f"body: {_result_json(result)}")
                     log.error(
                         f"lease-lost job={job_id} epoch={lease_epoch} "
                         f"stage={name} reason=push-409"

@@ -60,3 +60,29 @@ def test_transcribe_prefers_explicit_audio_path_when_set(monkeypatch, tmp_path) 
 
     transcribe_stage.run(None, ctx)
     assert captured["audio"] == "/explicit/extracted.wav"
+
+
+def test_transcribe_forwards_ctx_stage_log_to_kits(monkeypatch, tmp_path) -> None:
+    seen: list[tuple[str, str, str]] = []
+
+    def fake_kits(audio, out_srt, **kwargs):
+        log_output = kwargs["log_output"]
+        log_output("stdout", "segment 1/4")
+        Path(out_srt).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_srt).write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+        return Path(out_srt)
+
+    monkeypatch.setattr(transcribe_stage, "kits_transcribe", fake_kits)
+    monkeypatch.setenv("KANOMORI_MEDIA_ROOT", str(tmp_path))
+    from kanomori.config import get_settings
+
+    get_settings.cache_clear()
+
+    ctx = IngestContext(media_path="/some/clip.mp4")
+    ctx.content_hash = "abc123"
+    ctx.audio_path = "/explicit/extracted.wav"
+    ctx.stage_log = lambda stage, stream, line: seen.append((stage, stream, line))
+
+    transcribe_stage.run(None, ctx)
+
+    assert seen == [("transcribe", "stdout", "segment 1/4")]

@@ -31,12 +31,17 @@ def compute(ctx) -> TranscribeResult:
     # (the raw .mp4) — so a resumed run where locate_media was skipped still feeds KITS the
     # decodable audio it produced. Mirrors how the SRT path is derived above.
     audio = ctx.audio_path or str(audio_path_for(ctx.content_hash))
+    stage_log = getattr(ctx, "stage_log", None)
+    log_output = None
+    if stage_log is not None:
+        log_output = lambda stream, line: stage_log("transcribe", stream, line)
     ctx.srt_path = str(
         kits_transcribe(
             Path(audio),
             out_srt,
             separate=ctx.separate,
             language=ctx.language,
+            log_output=log_output,
         )
     )
     return TranscribeResult()

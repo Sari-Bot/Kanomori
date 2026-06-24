@@ -94,3 +94,33 @@ def test_run_raises_on_ffmpeg_failure(tmp_path, monkeypatch) -> None:
     ctx.content_hash = "deadbeef2"
     with pytest.raises(RuntimeError, match="ffmpeg"):
         locate_media.run(None, ctx)
+
+
+def test_run_relays_ffmpeg_output_via_ctx_stage_log(tmp_path, monkeypatch) -> None:
+    from kanomori.ingest import pipeline
+    from kanomori.ingest.stages import locate_media
+
+    seen: list[tuple[str, str, str]] = []
+
+    def fake_runner(argv, **kwargs):
+        kwargs["log_output"]("stderr", "frame=1 fps=10")
+        Path(argv[argv.index("-y") - 1]).write_bytes(b"RIFFfake")
+
+        class R:
+            returncode = 0
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(locate_media, "_run", fake_runner)
+    ctx = pipeline.IngestContext(media_path=str(tmp_path / "clip.mp4"), title="雑談")
+    ctx.content_hash = "deadbeef3"
+    ctx.stage_log = lambda stage, stream, line: seen.append((stage, stream, line))
+    monkeypatch.setenv("KANOMORI_MEDIA_ROOT", str(tmp_path / "media"))
+    from kanomori.config import get_settings
+
+    get_settings.cache_clear()
+
+    locate_media.run(None, ctx)
+
+    assert seen == [("locate_media", "stderr", "frame=1 fps=10")]
