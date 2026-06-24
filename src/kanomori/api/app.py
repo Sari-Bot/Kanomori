@@ -13,7 +13,6 @@ real BGE-M3 embedder lazily inside the lifespan.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,7 +24,15 @@ from fastapi.templating import Jinja2Templates
 
 from kanomori.config import get_settings
 from kanomori.db import close_pool, connection
-from kanomori.models import IngestRequest, IngestResponse, JobStatusResponse, SearchResponse
+from kanomori.media_source import MediaSourceError, get_media_source, iter_manifest
+from kanomori.models import (
+    BatchIngestRequest,
+    BatchIngestResponse,
+    IngestRequest,
+    IngestResponse,
+    JobStatusResponse,
+    SearchResponse,
+)
 from kanomori.retrieval import merge, screenshot, transcript
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "web" / "templates"
@@ -81,6 +88,11 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Kanomori", lifespan=lifespan)
 
+    # Coordinator API: remote workers claim/heartbeat/push-stage/complete jobs (bearer-auth'd).
+    from kanomori.api.jobs import build_jobs_router
+
+    app.include_router(build_jobs_router())
+
     @app.post("/search/transcript", response_model=SearchResponse)
     def search_transcript(req: dict) -> SearchResponse:
         query = (req or {}).get("query", "")
@@ -109,23 +121,66 @@ def create_app() -> FastAPI:
 
     @app.post("/ingest", response_model=IngestResponse)
     def ingest(req: IngestRequest) -> IngestResponse:
-        # content_hash is computed by the register stage from the file; for the queue we use a
-        # cheap placeholder key (md5 of the path) so /ingest stays fast and never blocks on
-        # hashing a multi-GB file. register reconciles to the real sha256 when the worker runs.
-        queue_key = hashlib.md5(req.media_path.encode()).hexdigest()  # noqa: S324 - not security
+        # content_hash (sha256 of the media) is computed by the register stage when the worker
+        # runs — not here, so /ingest stays fast and never blocks hashing a multi-GB file. We
+        # enqueue a job with content_hash = NULL and stash the request in stage_status->'request'
+        # for the worker to rebuild the IngestContext. register later UPDATEs this same row to the
+        # real hash (keyed by job id), so there's exactly one row per job — no md5(path) orphan.
         request_payload = json.dumps(req.model_dump())
         with connection() as conn:
             row = conn.execute(
                 """
                 INSERT INTO jobs (content_hash, status, stage_status)
-                VALUES (%s, 'queued', jsonb_build_object('request', %s::jsonb))
-                ON CONFLICT (content_hash) DO UPDATE SET status = 'queued'
+                VALUES (NULL, 'queued', jsonb_build_object('request', %s::jsonb))
                 RETURNING id
                 """,
-                (queue_key, request_payload),
+                (request_payload,),
             ).fetchone()
             conn.commit()
-        return IngestResponse(job_id=row[0], content_hash=queue_key, status="queued")
+        return IngestResponse(job_id=row[0], content_hash=None, status="queued")
+
+    @app.post("/ingest/batch", response_model=BatchIngestResponse)
+    def ingest_batch(req: BatchIngestRequest) -> BatchIngestResponse:
+        # Enqueue one job per manifest line, the same way /ingest enqueues a single request:
+        # content_hash = NULL (the register stage resolves it when the worker runs) and the
+        # verbatim manifest record stashed in stage_status->'request' for the worker to rebuild
+        # its IngestContext. The record's `path` field is the worker's canonical source key, so we
+        # store the record as-is (no media_path translation). Re-running a batch is idempotent:
+        # a record whose `path` already has a queued/running job is skipped, not re-enqueued.
+        source = get_media_source()
+        try:
+            records = iter_manifest(source, req.manifest_path)
+        except MediaSourceError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        enqueued: list[int] = []
+        skipped: list[str] = []
+        with connection() as conn:
+            for record in records:
+                path = record.get("path")
+                dup = conn.execute(
+                    """
+                    SELECT 1 FROM jobs
+                    WHERE status IN ('queued', 'running')
+                      AND stage_status->'request'->>'path' = %s
+                    LIMIT 1
+                    """,
+                    (path,),
+                ).fetchone()
+                if dup is not None:
+                    skipped.append(path)
+                    continue
+                row = conn.execute(
+                    """
+                    INSERT INTO jobs (content_hash, status, stage_status)
+                    VALUES (NULL, 'queued', jsonb_build_object('request', %s::jsonb))
+                    RETURNING id
+                    """,
+                    (json.dumps(record),),
+                ).fetchone()
+                enqueued.append(row[0])
+            conn.commit()
+        return BatchIngestResponse(enqueued=enqueued, skipped=skipped, total=len(records))
 
     @app.get("/ingest/{job_id}", response_model=JobStatusResponse)
     def ingest_status(job_id: int) -> JobStatusResponse:

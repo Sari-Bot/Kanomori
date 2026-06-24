@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 from kanomori.ingest.artifacts import frame_dir_for, frame_path_for
+from kanomori.ingest.stage_result import FrameRow, FramesResult
 
 DEFAULT_INTERVAL_SEC = 8.0
 DEDUP_TOLERANCE_SEC = 0.25
@@ -97,6 +98,21 @@ def extract_frame(media_path: Path, ts_sec: float, out_path: Path) -> None:
 
 
 def run(conn, ctx):
+    result = compute(ctx)
+    if result == "skipped":
+        return "skipped"
+    persist(conn, ctx.video_id, result, content_hash=ctx.content_hash)
+    return None
+
+
+def compute(ctx):
+    """Probe duration, plan timestamps, extract JPEGs to disk; return FramesResult or "skipped".
+
+    No DB connection. The JPEGs land at deterministic content-hash-keyed paths; the result carries
+    one :class:`FrameRow` per frame (keyed by ts_sec, naming its JPEG artifact) plus the
+    scene-timestamp recipe. Returns the "skipped" sentinel — preserving run()'s contract that
+    run_full checks — when there is no video stream or no sampleable timestamps.
+    """
     media = Path(ctx.media_path)
     duration = probe_duration_sec(media)
     if duration is None:
@@ -108,10 +124,24 @@ def run(conn, ctx):
     if not timestamps:
         return "skipped"
 
-    conn.execute("DELETE FROM frames WHERE video_id = %s", (ctx.video_id,))
+    rows: list[FrameRow] = []
     for ts in timestamps:
         frame_path = frame_path_for(ctx.content_hash, ts)
         extract_frame(media, ts, frame_path)
+        rows.append(FrameRow(ts_sec=ts, artifact=frame_path.name))
+    return FramesResult(frames=rows, scene_timestamps=scene_times)
+
+
+def persist(conn, video_id, result: FramesResult, *, content_hash: str) -> None:
+    """Replace this video's frames rows. ``frame_path`` is re-derived from content_hash + ts_sec.
+
+    ``content_hash`` is a keyword param (not a wire field — FramesResult carries only natural
+    keys) so the coordinator can rebuild each JPEG's canonical on-disk path after receiving the
+    artifacts, mirroring where the worker wrote them.
+    """
+    conn.execute("DELETE FROM frames WHERE video_id = %s", (video_id,))
+    for row in result.frames:
+        frame_path = frame_path_for(content_hash, row.ts_sec)
         conn.execute(
             """
             INSERT INTO frames (video_id, ts_sec, frame_path)
@@ -119,5 +149,5 @@ def run(conn, ctx):
             ON CONFLICT (video_id, ts_sec) DO UPDATE
             SET frame_path = EXCLUDED.frame_path
             """,
-            (ctx.video_id, ts, str(frame_path)),
+            (video_id, row.ts_sec, str(frame_path)),
         )

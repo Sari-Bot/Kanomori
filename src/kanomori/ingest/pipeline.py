@@ -38,6 +38,11 @@ class IngestContext:
     separate: bool = False
     language: str = "japanese"
 
+    # Identity of the pre-existing jobs row for this run, when the worker enqueued it before
+    # register computed content_hash. None for single-machine callers that have no prior row;
+    # register then falls back to upserting the jobs row by content_hash (see register.run).
+    job_id: int | None = None
+
     # Populated by stages as they run.
     content_hash: str | None = None
     video_id: int | None = None
