@@ -11,6 +11,9 @@ This is a Phase-1 MVP under active construction. See `HANDOFF.md` for current bu
 `docs/ARCHITECTURE.md` for decisions and rationale, and `kanomori_project_white_paper.md` for
 the full product vision.
 
+Distributed ingestion usage for the current coordinator/worker system lives in
+`docs/distributed-ingestion.md`.
+
 ## How it works
 
 Two loosely-coupled halves:
