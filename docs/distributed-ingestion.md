@@ -95,6 +95,10 @@ KANOMORI_COORDINATOR_TOKEN=replace-this-shared-secret
 KANOMORI_MEDIA_SOURCE=local
 KANOMORI_MEDIA_SOURCE_ROOT=./samples
 KANOMORI_KITS_DIR=/Users/lb/Documents/Code/KITS
+KANOMORI_STAGE_PARSE_TRANSCRIPT_DEVICE=cpu
+KANOMORI_STAGE_OCR_DEVICE=cpu
+KANOMORI_STAGE_CLASSIFY_DEVICE=cpu
+KANOMORI_STAGE_IMAGE_EMBED_DEVICE=cpu
 ```
 
 For WebDAV-backed source media:
@@ -111,6 +115,11 @@ Relevant notes:
 - `KANOMORI_MEDIA_SOURCE=local` means the worker reads from a local mirror such as `samples/`.
 - `KANOMORI_MEDIA_SOURCE=webdav` means the worker reads source files and `manifest.jsonl` via HTTPS GET.
 - The distributed worker uses `KANOMORI_COORDINATOR_URL`; the default is `http://localhost:8000`, which only fits a worker colocated with the coordinator.
+- Stage-device settings are worker-local only. One worker still claims a whole job and runs every stage locally; these flags only decide whether that worker runs `parse_transcript`, `ocr`, `classify`, and `image_embed` on CPU or GPU.
+- `cpu` forces CPU execution for the stage. `gpu` is fail-fast: if the worker cannot initialize that stage on the process-visible default GPU, the stage errors instead of silently dropping to CPU.
+- `transcribe` is unchanged and still runs through the KITS subprocess path.
+- `KANOMORI_STAGE_OCR_DEVICE=gpu` requires `KANOMORI_INGEST_OCR_BACKEND=cuda` or `tensorrt`. Setting `KANOMORI_INGEST_OCR_BACKEND=onnxruntime` with GPU OCR is rejected.
+- Query-time OCR and query-time embedding are not affected by these worker settings.
 
 ## Source Store Layout
 

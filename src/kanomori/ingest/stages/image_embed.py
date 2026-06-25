@@ -22,8 +22,9 @@ def _embedder():
     global _EMBEDDER
     if _EMBEDDER is None:
         from kanomori.embed.image_embedder import DINOv2Embedder
+        from kanomori.ingest.stage_device import device_for_stage
 
-        _EMBEDDER = DINOv2Embedder()
+        _EMBEDDER = DINOv2Embedder(device=device_for_stage("image_embed"))
     return _EMBEDDER
 
 

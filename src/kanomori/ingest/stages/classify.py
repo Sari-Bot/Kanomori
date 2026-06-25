@@ -39,8 +39,12 @@ def _classifier():
     global _CLASSIFIER
     if _CLASSIFIER is None:
         from kanomori.embed.image_embedder import SigLIPClassifier
+        from kanomori.ingest.stage_device import device_for_stage
 
-        _CLASSIFIER = SigLIPClassifier(labels=SCENE_PROMPTS)
+        _CLASSIFIER = SigLIPClassifier(
+            labels=SCENE_PROMPTS,
+            device=device_for_stage("classify"),
+        )
     return _CLASSIFIER
 
 

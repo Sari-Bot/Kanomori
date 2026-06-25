@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+StageDevice = Literal["cpu", "gpu"]
 
 
 class Settings(BaseSettings):
@@ -61,6 +64,10 @@ class Settings(BaseSettings):
     ingest_ocr_backend: str = "onnxruntime"
     query_ocr_model: str = "ppocrv5_server"
     query_ocr_backend: str = "onnxruntime"
+    stage_parse_transcript_device: StageDevice = "cpu"
+    stage_ocr_device: StageDevice = "cpu"
+    stage_classify_device: StageDevice = "cpu"
+    stage_image_embed_device: StageDevice = "cpu"
     # Deprecated migration input for the old flat engine names.
     ocr_engine: str | None = None
 

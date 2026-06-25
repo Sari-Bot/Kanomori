@@ -208,8 +208,10 @@ def get_ocr_reader(
     backend: str | None = None,
     *,
     scope: str = "ingest",
-    allow_backend_fallback: bool = True,
+    allow_backend_fallback: bool | None = None,
 ) -> OcrReader:
+    if allow_backend_fallback is None:
+        allow_backend_fallback = _default_allow_backend_fallback(scope=scope)
     config = resolve_ocr_config(model, backend, scope=scope)
     cache_key = (config, allow_backend_fallback)
     if cache_key not in _READERS:
@@ -226,7 +228,7 @@ def read_image_ocr(
     model: str | None = None,
     backend: str | None = None,
     scope: str = "ingest",
-    allow_backend_fallback: bool = True,
+    allow_backend_fallback: bool | None = None,
 ) -> list[OcrResult]:
     return get_ocr_reader(
         model,
@@ -249,14 +251,37 @@ def _settings_ocr_config(*, scope: str, settings: Any | None = None) -> OcrConfi
     fields_set = getattr(settings, "model_fields_set", set())
     has_scope_override = model_field in fields_set or backend_field in fields_set
     if getattr(settings, "ocr_engine", None) and not has_scope_override:
-        return parse_ocr_engine_alias(settings.ocr_engine)
-
-    return validate_ocr_config(
-        OcrConfig(
-            model=getattr(settings, model_field),
-            backend=getattr(settings, backend_field),
+        config = parse_ocr_engine_alias(settings.ocr_engine)
+    else:
+        config = validate_ocr_config(
+            OcrConfig(
+                model=getattr(settings, model_field),
+                backend=getattr(settings, backend_field),
+            )
         )
-    )
+
+    if scope != "ingest":
+        return config
+
+    from kanomori.ingest.stage_device import device_for_stage
+
+    if device_for_stage("ocr", settings=settings) == "cpu":
+        return OcrConfig(config.model, OCR_BACKEND_ONNXRUNTIME)
+    if config.backend not in GPU_OCR_BACKENDS:
+        raise ValueError(
+            "KANOMORI_STAGE_OCR_DEVICE=gpu requires a GPU OCR backend "
+            f"(cuda or tensorrt); got {config.backend!r}"
+        )
+    return config
+
+
+def _default_allow_backend_fallback(*, scope: str) -> bool:
+    if scope != "ingest":
+        return True
+
+    from kanomori.ingest.stage_device import device_for_stage
+
+    return device_for_stage("ocr") != "gpu"
 
 
 def _make_reader_with_fallback(

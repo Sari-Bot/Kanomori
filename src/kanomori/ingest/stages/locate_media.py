@@ -66,7 +66,9 @@ def compute(ctx) -> None:
     stage_log = getattr(ctx, "stage_log", None)
     log_output = None
     if stage_log is not None:
-        log_output = lambda stream, line: stage_log("locate_media", stream, line)
+        def log_output(stream, line):
+            stage_log("locate_media", stream, line)
+
     result = _run(argv, log_output=log_output)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg audio extraction failed: {(result.stderr or '')[:300]}")

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import kanomori
 from kanomori.config import Settings
 from kanomori.migrate import MIGRATIONS_DIR
@@ -26,6 +28,30 @@ def test_settings_defaults_load() -> None:
     assert s.ingest_ocr_backend == "onnxruntime"
     assert s.query_ocr_model == "ppocrv5_server"
     assert s.query_ocr_backend == "onnxruntime"
+    assert s.stage_parse_transcript_device == "cpu"
+    assert s.stage_ocr_device == "cpu"
+    assert s.stage_classify_device == "cpu"
+    assert s.stage_image_embed_device == "cpu"
+
+
+def test_stage_device_settings_accept_cpu_and_gpu() -> None:
+    s = Settings(
+        stage_parse_transcript_device="gpu",
+        stage_ocr_device="cpu",
+        stage_classify_device="gpu",
+        stage_image_embed_device="cpu",
+        _env_file=None,
+    )
+
+    assert s.stage_parse_transcript_device == "gpu"
+    assert s.stage_ocr_device == "cpu"
+    assert s.stage_classify_device == "gpu"
+    assert s.stage_image_embed_device == "cpu"
+
+
+def test_stage_device_settings_reject_invalid_values() -> None:
+    with pytest.raises(ValueError, match="stage_parse_transcript_device"):
+        Settings(stage_parse_transcript_device="cuda", _env_file=None)
 
 
 def test_migrations_present_and_ordered() -> None:

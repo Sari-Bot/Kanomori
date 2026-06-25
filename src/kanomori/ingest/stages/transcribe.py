@@ -34,7 +34,9 @@ def compute(ctx) -> TranscribeResult:
     stage_log = getattr(ctx, "stage_log", None)
     log_output = None
     if stage_log is not None:
-        log_output = lambda stream, line: stage_log("transcribe", stream, line)
+        def log_output(stream, line):
+            stage_log("transcribe", stream, line)
+
     ctx.srt_path = str(
         kits_transcribe(
             Path(audio),

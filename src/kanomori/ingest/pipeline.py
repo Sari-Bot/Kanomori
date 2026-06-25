@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from kanomori.ingest.stage_device import device_for_stage
 from kanomori.ingest.stages import (
     classify,
     frames,
@@ -70,7 +71,7 @@ def make_embedder():
     """Construct the text embedder. Patched in tests to inject a deterministic fake."""
     from kanomori.embed.text_embedder import BGEEmbedder
 
-    return BGEEmbedder()
+    return BGEEmbedder(device=device_for_stage("parse_transcript"))
 
 
 def run_stage(conn, name: str, ctx: IngestContext):

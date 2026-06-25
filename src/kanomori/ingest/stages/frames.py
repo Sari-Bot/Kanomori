@@ -121,7 +121,9 @@ def compute(ctx):
     stage_log = getattr(ctx, "stage_log", None)
     log_output = None
     if stage_log is not None:
-        log_output = lambda stream, line: stage_log("frames", stream, line)
+        def log_output(stream, line):
+            stage_log("frames", stream, line)
+
     duration = probe_duration_sec(media, log_output=log_output)
     if duration is None:
         return "skipped"
