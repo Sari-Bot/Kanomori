@@ -11,10 +11,13 @@ re-runs); ``run_full`` is the normal entry point that respects stage status.
 
 from __future__ import annotations
 
+import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from kanomori.ingest.job_time_costs import merge_time_costs
 from kanomori.ingest.stage_device import device_for_stage
 from kanomori.ingest.stages import (
     classify,
@@ -91,18 +94,27 @@ def _stage_terminal(conn, content_hash: str, name: str) -> bool:
     return bool(row) and row[0] in {"done", "skipped"}
 
 
-def _mark_stage(conn, content_hash: str, name: str, state: str = "done") -> None:
+def _mark_stage(
+    conn, content_hash: str, name: str, state: str = "done", compute_seconds: float | None = None
+) -> None:
+    time_costs = conn.execute(
+        "SELECT time_costs FROM jobs WHERE content_hash = %s", (content_hash,)
+    ).fetchone()[0]
+    merged = time_costs if compute_seconds is None else merge_time_costs(
+        time_costs, name, compute_seconds
+    )
     conn.execute(
         """
         UPDATE jobs
         SET stage_status = stage_status || jsonb_build_object(
                 %s::text, jsonb_build_object('state', %s::text, 'finished', %s::text)
             ),
+            time_costs = %s::jsonb,
             current_stage = %s,
             updated_at = now()
         WHERE content_hash = %s
         """,
-        (name, state, datetime.now(UTC).isoformat(), name, content_hash),
+        (name, state, datetime.now(UTC).isoformat(), json.dumps(merged), name, content_hash),
     )
 
 
@@ -120,9 +132,11 @@ def run_full(conn, ctx: IngestContext) -> IngestContext:
         # register is cheap + sets identity; always run it to (re)resolve content_hash/video_id.
         if name != "register" and _stage_terminal(conn, ctx.content_hash, name):
             continue
+        started = time.perf_counter()
         result = stage.run(conn, ctx)
+        compute_seconds = round(time.perf_counter() - started, 3)
         state = "skipped" if result == "skipped" else "done"
-        _mark_stage(conn, ctx.content_hash, name, state)
+        _mark_stage(conn, ctx.content_hash, name, state, compute_seconds)
         conn.commit()
 
     conn.execute(

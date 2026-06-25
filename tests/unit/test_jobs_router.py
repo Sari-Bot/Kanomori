@@ -423,7 +423,7 @@ def test_stage_push_accepts_large_result_file_beyond_old_form_limit(set_token, m
     monkeypatch.setattr(
         lease,
         "mark_stage_done",
-        lambda conn, job_id, lease_epoch, stage_name: True,
+        lambda conn, job_id, lease_epoch, stage_name, state="done", compute_seconds=None: True,
     )
 
     from kanomori.api import app as app_module
@@ -455,3 +455,49 @@ def test_stage_push_accepts_large_result_file_beyond_old_form_limit(set_token, m
     assert resp.status_code == 200
     assert holder["conn"].persisted[0] == "parse_transcript"
     assert len(holder["conn"].persisted[1].segments) == 200
+
+
+def test_stage_push_forwards_compute_seconds_to_stage_completion(set_token, monkeypatch):
+    from kanomori.api import jobs as jobs_module
+
+    class _FreshConn:
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchone(self_inner):
+                    return (None, None, 2)
+
+            return _Cur()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    @contextlib.contextmanager
+    def fake_connection():
+        yield _FreshConn()
+
+    seen = {}
+
+    monkeypatch.setattr(jobs_module, "connection", fake_connection)
+    monkeypatch.setattr(lease, "persist_stage", lambda *a, **k: None)
+
+    def fake_mark_stage_done(
+        conn, job_id, lease_epoch, stage_name, state="done", compute_seconds=None
+    ):
+        seen["args"] = (job_id, lease_epoch, stage_name, state, compute_seconds)
+        return True
+
+    monkeypatch.setattr(lease, "mark_stage_done", fake_mark_stage_done)
+
+    from kanomori.api import app as app_module
+
+    client = TestClient(app_module.create_app())
+    resp = client.post(
+        "/jobs/5/stage/locate_media",
+        data={"lease_epoch": "2", "compute_seconds": "1.234"},
+        headers=_auth(),
+    )
+    assert resp.status_code == 200
+    assert seen["args"] == (5, 2, "locate_media", "done", 1.234)

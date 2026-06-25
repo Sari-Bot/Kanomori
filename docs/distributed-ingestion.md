@@ -308,7 +308,12 @@ Response fields:
 - `status`: overall job state
 - `current_stage`: the stage currently being worked on
 - `stage_status`: per-stage progress plus the stored request payload
+- `time_costs`: ordered per-stage compute durations as `{"stage": "<name>", "seconds": <float>}`
 - `error`: failure string, if any
+
+`time_costs` is empty for queued jobs. It records only terminal successful stages (`done` and
+`skipped`), uses pipeline stage order, and replaces a prior entry when a stage is rerun
+successfully. Total job compute time is derived by summing `time_costs[].seconds`.
 
 Typical values:
 
@@ -389,12 +394,16 @@ The single-machine path still calls `run(conn, ctx)` and remains valid. Distribu
 The `/jobs/{job_id}/stage/{stage_name}` endpoint accepts:
 
 - form field `lease_epoch`
+- optional form field `compute_seconds` for compute-only stage wall time, rounded to 3 decimals
 - optional file field `result_file` containing the UTF-8 JSON-serialized `StageResult`
 - multipart file field `files` for binary artifacts such as frame JPEGs or the SRT
 
 Model-bearing stages upload `result_file`; model-less stages such as `locate_media` omit it.
 The coordinator enforces a stage-result upload cap via `KANOMORI_STAGE_RESULT_MAX_BYTES`
 (default `67108864` bytes) and returns `413` when exceeded.
+
+`compute_seconds` is persisted atomically with stage completion. A failed push or fenced worker
+(`409`) does not create a `time_costs` entry.
 
 Artifacts are written to deterministic paths:
 

@@ -34,6 +34,7 @@ from kanomori.ingest.artifacts import frame_dir_for, srt_path_for
 
 # FastAPI dependency defaults are constructed once at import (B008-safe vs inline calls).
 LEASE_EPOCH_FORM = Form(...)
+COMPUTE_SECONDS_FORM = Form(default=None)
 STAGE_RESULT_FILE = File(default=None)
 STAGE_FILES = File(default_factory=list)
 
@@ -165,6 +166,7 @@ def build_jobs_router() -> APIRouter:
         job_id: int,
         stage_name: str,
         lease_epoch: int = LEASE_EPOCH_FORM,
+        compute_seconds: float | None = COMPUTE_SECONDS_FORM,
         result_file: UploadFile | None = STAGE_RESULT_FILE,
         files: list[UploadFile] = STAGE_FILES,
     ):
@@ -203,7 +205,13 @@ def build_jobs_router() -> APIRouter:
             if new_video_id is not None:
                 video_id = new_video_id  # register produced it; downstream stages need it
 
-            if not lease.mark_stage_done(conn, job_id, lease_epoch, stage_name):
+            if not lease.mark_stage_done(
+                conn,
+                job_id,
+                lease_epoch,
+                stage_name,
+                compute_seconds=compute_seconds,
+            ):
                 conn.rollback()
                 raise HTTPException(status_code=409, detail="stale lease epoch")
             conn.commit()

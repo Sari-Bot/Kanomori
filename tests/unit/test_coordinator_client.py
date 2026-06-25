@@ -108,13 +108,14 @@ def test_push_stage_sends_multipart_and_bearer():
     client, fake = _client([_FakeResponse(200, {"ok": True})])
     files = [("frame_000000_000.jpg", b"jpegbytes"), ("frame_000008_000.jpg", b"more")]
 
-    ok = client.push_stage(9, "frames", 3, '{"stage":"frames"}', files)
+    ok = client.push_stage(9, "frames", 3, '{"stage":"frames"}', files, compute_seconds=1.234)
 
     assert ok is True
     call = fake.calls[0]
     assert call["url"] == f"{BASE}/jobs/9/stage/frames"
     # lease_epoch rides as a form field; result_json rides as the JSON file part.
     assert call["data"]["lease_epoch"] == "3"
+    assert call["data"]["compute_seconds"] == "1.234"
     assert "result" not in call["data"]
     # result_json is attached as a JSON file part first.
     assert len(call["files"]) == 3
@@ -138,6 +139,7 @@ def test_push_stage_empty_result_and_no_files():
     assert ok is True
     call = fake.calls[0]
     assert call["data"]["lease_epoch"] == "3"
+    assert "compute_seconds" not in call["data"]
     assert call["files"] == []
 
 

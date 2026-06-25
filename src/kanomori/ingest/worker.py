@@ -348,7 +348,9 @@ def run_one_distributed(
                     return True  # lease lost mid-run; stop without completing
 
                 log.progress(f"stage start job={job_id} stage={name}")
+                started = time.perf_counter()
                 outcome = module.compute(ctx)
+                compute_seconds = round(time.perf_counter() - started, 3)
                 if outcome == "skipped":
                     result = _empty_result_for(name)
                     outcome_label = "skipped"
@@ -373,7 +375,14 @@ def run_one_distributed(
                     f"outcome={outcome_label} result_bytes={len(result_json.encode('utf-8'))} "
                     f"artifacts={len(files)}"
                 )
-                if not client.push_stage(job_id, name, lease_epoch, result_json, files):
+                if not client.push_stage(
+                    job_id,
+                    name,
+                    lease_epoch,
+                    result_json,
+                    files,
+                    compute_seconds=compute_seconds,
+                ):
                     log.error(
                         f"lease-lost job={job_id} epoch={lease_epoch} "
                         f"stage={name} reason=push-409"

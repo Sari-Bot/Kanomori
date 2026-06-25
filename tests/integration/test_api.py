@@ -124,6 +124,7 @@ def test_ingest_status_reports_queued(client, tmp_path) -> None:
     resp = client.get(f"/ingest/{job_id}")
     assert resp.status_code == 200
     assert resp.json()["status"] == "queued"
+    assert resp.json()["time_costs"] == []
 
 
 def test_ingest_status_404_for_unknown_job(client) -> None:
@@ -206,4 +207,3 @@ def test_result_endpoint_returns_moment_detail(client, seeded) -> None:
 def test_result_endpoint_404_for_unknown_video(client) -> None:
     resp = client.get("/result/99999999", params={"ts": 1.0})
     assert resp.status_code == 404
-

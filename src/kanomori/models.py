@@ -93,11 +93,17 @@ class BatchIngestResponse(BaseModel):
     total: int
 
 
+class JobStageTimeCost(BaseModel):
+    stage: str
+    seconds: float
+
+
 class JobStatusResponse(BaseModel):
     job_id: int
     status: str
     current_stage: str | None = None
     stage_status: dict = Field(default_factory=dict)
+    time_costs: list[JobStageTimeCost] = Field(default_factory=list)
     error: str | None = None
 
 

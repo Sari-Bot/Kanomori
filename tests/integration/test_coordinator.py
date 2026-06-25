@@ -270,6 +270,10 @@ def _auth(token: str = TOKEN) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _result_file(payload: dict) -> dict[str, tuple[str, str, str]]:
+    return {"result_file": ("result.json", json.dumps(payload), "application/json")}
+
+
 def test_router_claim_register_complete_flow(client, db_conn, media_file):
     # Enqueue via the real /ingest so the request payload + NULL hash are set the production way.
     job_id = client.post("/ingest", json={"media_path": str(media_file)}).json()["job_id"]
@@ -289,7 +293,8 @@ def test_router_claim_register_complete_flow(client, db_conn, media_file):
     }
     resp = client.post(
         f"/jobs/{job_id}/stage/register",
-        data={"lease_epoch": str(epoch), "result": json.dumps(register_result)},
+        data={"lease_epoch": str(epoch), "compute_seconds": "1.111"},
+        files=_result_file(register_result),
         headers=_auth(),
     )
     assert resp.status_code == 200, resp.text
@@ -308,7 +313,7 @@ def test_router_claim_register_complete_flow(client, db_conn, media_file):
     # Push a no-DB stage (locate_media) and a classify stage with one scene segment.
     resp = client.post(
         f"/jobs/{job_id}/stage/locate_media",
-        data={"lease_epoch": str(epoch), "result": ""},
+        data={"lease_epoch": str(epoch), "compute_seconds": "2.222"},
         headers=_auth(),
     )
     assert resp.status_code == 200, resp.text
@@ -322,7 +327,8 @@ def test_router_claim_register_complete_flow(client, db_conn, media_file):
     }
     resp = client.post(
         f"/jobs/{job_id}/stage/classify",
-        data={"lease_epoch": str(epoch), "result": json.dumps(classify_result)},
+        data={"lease_epoch": str(epoch), "compute_seconds": "3.333"},
+        files=_result_file(classify_result),
         headers=_auth(),
     )
     assert resp.status_code == 200, resp.text
@@ -338,6 +344,12 @@ def test_router_claim_register_complete_flow(client, db_conn, media_file):
     assert resp.status_code == 200, resp.text
     status = db_conn.execute("SELECT status FROM jobs WHERE id=%s", (job_id,)).fetchone()[0]
     assert status == "complete"
+    time_costs = db_conn.execute("SELECT time_costs FROM jobs WHERE id=%s", (job_id,)).fetchone()[0]
+    assert time_costs == [
+        {"stage": "register", "seconds": 1.111},
+        {"stage": "locate_media", "seconds": 2.222},
+        {"stage": "classify", "seconds": 3.333},
+    ]
 
 
 def test_router_frames_stage_saves_uploaded_jpeg(client, db_conn, media_file):
@@ -353,10 +365,8 @@ def test_router_frames_stage_saves_uploaded_jpeg(client, db_conn, media_file):
     # Register first so content_hash + video_id are set on the job.
     client.post(
         f"/jobs/{job_id}/stage/register",
-        data={
-            "lease_epoch": str(epoch),
-            "result": json.dumps({"stage": "register", "content_hash": content_hash}),
-        },
+        data={"lease_epoch": str(epoch), "compute_seconds": "0.5"},
+        files=_result_file({"stage": "register", "content_hash": content_hash}),
         headers=_auth(),
     )
 
@@ -368,8 +378,11 @@ def test_router_frames_stage_saves_uploaded_jpeg(client, db_conn, media_file):
     }
     resp = client.post(
         f"/jobs/{job_id}/stage/frames",
-        data={"lease_epoch": str(epoch), "result": json.dumps(frames_result)},
-        files=[("files", (frame_name, b"\xff\xd8\xff-fake-jpeg", "image/jpeg"))],
+        data={"lease_epoch": str(epoch), "compute_seconds": "4.444"},
+        files=[
+            ("result_file", ("result.json", json.dumps(frames_result), "application/json")),
+            ("files", (frame_name, b"\xff\xd8\xff-fake-jpeg", "image/jpeg")),
+        ],
         headers=_auth(),
     )
     assert resp.status_code == 200, resp.text
@@ -388,6 +401,41 @@ def test_router_frames_stage_saves_uploaded_jpeg(client, db_conn, media_file):
 
     # Cleanup the artifact we wrote under the real media_root.
     saved.unlink(missing_ok=True)
+
+
+def test_router_retry_replaces_stage_time_cost_on_success(client, db_conn, media_file):
+    job_id = client.post("/ingest", json={"media_path": str(media_file)}).json()["job_id"]
+    first_claim = client.post("/jobs/claim", json={"worker_id": "w1"}, headers=_auth()).json()
+    first_epoch = first_claim["lease_epoch"]
+    register_result = {"stage": "register", "content_hash": "c" * 64}
+
+    resp = client.post(
+        f"/jobs/{job_id}/stage/register",
+        data={"lease_epoch": str(first_epoch), "compute_seconds": "1.111"},
+        files=_result_file(register_result),
+        headers=_auth(),
+    )
+    assert resp.status_code == 200
+
+    db_conn.execute(
+        "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id=%s", (job_id,)
+    )
+    db_conn.commit()
+
+    second_claim = client.post("/jobs/claim", json={"worker_id": "w2"}, headers=_auth()).json()
+    assert second_claim["job_id"] == job_id
+    assert second_claim["lease_epoch"] == first_epoch + 1
+
+    resp = client.post(
+        f"/jobs/{job_id}/stage/register",
+        data={"lease_epoch": str(second_claim['lease_epoch']), "compute_seconds": "9.999"},
+        files=_result_file(register_result),
+        headers=_auth(),
+    )
+    assert resp.status_code == 200
+
+    time_costs = db_conn.execute("SELECT time_costs FROM jobs WHERE id=%s", (job_id,)).fetchone()[0]
+    assert time_costs == [{"stage": "register", "seconds": 9.999}]
 
 
 def test_router_401_without_bearer(client):

@@ -234,14 +234,15 @@ def create_app() -> FastAPI:
     def ingest_status(job_id: int) -> JobStatusResponse:
         with connection() as conn:
             row = conn.execute(
-                "SELECT status, current_stage, stage_status, error FROM jobs WHERE id = %s",
+                "SELECT status, current_stage, stage_status, error, time_costs "
+                "FROM jobs WHERE id = %s",
                 (job_id,),
             ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="job not found")
         return JobStatusResponse(
             job_id=job_id, status=row[0], current_stage=row[1],
-            stage_status=row[2] or {}, error=row[3],
+            stage_status=row[2] or {}, error=row[3], time_costs=row[4] or [],
         )
 
     @app.get("/result/{video_id}")

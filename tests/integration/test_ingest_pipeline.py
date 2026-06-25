@@ -184,3 +184,60 @@ def test_resume_skips_done_transcribe_and_runs_pending_later_stage(
     pipeline.run_full(db_conn, pipeline.IngestContext(media_path=str(media_file)))
 
     assert calls == ["frames"]
+
+
+def test_full_run_persists_time_costs_in_stage_order(
+    db_conn, media_file, fake_transcribe, fake_embedder, monkeypatch
+) -> None:
+    values = iter(
+        [
+            float(i)
+            for pair in ((n, n + 0.1111) for n in range(len(pipeline.STAGES)))
+            for i in pair
+        ]
+    )
+    monkeypatch.setattr(pipeline, "make_embedder", lambda: fake_embedder)
+    monkeypatch.setattr(pipeline.time, "perf_counter", lambda: next(values))
+    ctx = pipeline.IngestContext(media_path=str(media_file))
+
+    pipeline.run_full(db_conn, ctx)
+
+    time_costs = db_conn.execute(
+        "SELECT time_costs FROM jobs WHERE content_hash = %s", (ctx.content_hash,)
+    ).fetchone()[0]
+    assert [entry["stage"] for entry in time_costs] == [name for name, _ in pipeline.STAGES]
+    assert [entry["seconds"] for entry in time_costs] == [0.111] * len(pipeline.STAGES)
+
+
+def test_rerun_replaces_existing_stage_time_cost_instead_of_duplicating(
+    db_conn, media_file, fake_transcribe, fake_embedder, monkeypatch
+) -> None:
+    first_values = iter(
+        [
+            float(i)
+            for pair in ((n, n + 0.1111) for n in range(len(pipeline.STAGES)))
+            for i in pair
+        ]
+    )
+    monkeypatch.setattr(pipeline, "make_embedder", lambda: fake_embedder)
+    monkeypatch.setattr(pipeline.time, "perf_counter", lambda: next(first_values))
+    ctx = pipeline.IngestContext(media_path=str(media_file))
+    pipeline.run_full(db_conn, ctx)
+
+    db_conn.execute(
+        "UPDATE jobs SET stage_status = stage_status - 'parse_transcript' WHERE content_hash = %s",
+        (ctx.content_hash,),
+    )
+    db_conn.commit()
+
+    second_values = iter([50.0, 50.4444, 60.0, 60.5555] + [70.0, 70.0] * (len(pipeline.STAGES) - 2))
+    monkeypatch.setattr(pipeline.time, "perf_counter", lambda: next(second_values))
+    pipeline.run_full(db_conn, ctx)
+
+    time_costs = db_conn.execute(
+        "SELECT time_costs FROM jobs WHERE content_hash = %s", (ctx.content_hash,)
+    ).fetchone()[0]
+    by_stage = {entry["stage"]: entry["seconds"] for entry in time_costs}
+    assert len(time_costs) == len(pipeline.STAGES)
+    assert by_stage["register"] == 0.444
+    assert by_stage["parse_transcript"] == 0.556

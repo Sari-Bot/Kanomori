@@ -23,9 +23,11 @@ result to the right stage's ``persist`` with that stage's specific signature.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from kanomori.ingest.job_time_costs import merge_time_costs
 from kanomori.ingest.stage_result import (
     ClassifyResult,
     FramesResult,
@@ -196,7 +198,12 @@ def heartbeat(
 
 
 def mark_stage_done(
-    conn, job_id: int, lease_epoch: int, stage_name: str, state: str = "done"
+    conn,
+    job_id: int,
+    lease_epoch: int,
+    stage_name: str,
+    state: str = "done",
+    compute_seconds: float | None = None,
 ) -> bool:
     """Record a stage as done/skipped in ``stage_status`` (fence-checked). False ⇒ stale epoch.
 
@@ -204,17 +211,33 @@ def mark_stage_done(
     ``pipeline._mark_stage`` does, and advances ``current_stage`` — but gated on ``lease_epoch``
     so only the current lease holder can record progress.
     """
+    row = conn.execute(
+        "SELECT time_costs FROM jobs WHERE id = %s AND lease_epoch = %s",
+        (job_id, lease_epoch),
+    ).fetchone()
+    if row is None:
+        return False
+    merged = row[0] if compute_seconds is None else merge_time_costs(row[0], stage_name, compute_seconds)
     cur = conn.execute(
         """
         UPDATE jobs
         SET stage_status = stage_status || jsonb_build_object(
                 %s::text, jsonb_build_object('state', %s::text, 'finished', %s::text)
             ),
+            time_costs = %s::jsonb,
             current_stage = %s,
             updated_at = now()
         WHERE id = %s AND lease_epoch = %s
         """,
-        (stage_name, state, datetime.now(UTC).isoformat(), stage_name, job_id, lease_epoch),
+        (
+            stage_name,
+            state,
+            datetime.now(UTC).isoformat(),
+            json.dumps(merged),
+            stage_name,
+            job_id,
+            lease_epoch,
+        ),
     )
     return cur.rowcount == 1
 

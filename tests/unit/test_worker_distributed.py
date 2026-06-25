@@ -36,7 +36,7 @@ class FakeClient:
     def __init__(self, claim_result, *, push_returns=None):
         self._claim_result = claim_result
         self._push_returns = dict(push_returns or {})
-        self.pushed: list[tuple[str, int, str, int]] = []  # (stage, epoch, result_json, nfiles)
+        self.pushed: list[tuple[str, int, str, int, float | None]] = []
         self.completed: list[int] = []
         self.failed: list[tuple[int, str]] = []
         self.heartbeats: list[int] = []
@@ -48,8 +48,10 @@ class FakeClient:
         self.heartbeats.append(job_id)
         return True
 
-    def push_stage(self, job_id, stage_name, lease_epoch, result_json, files):
-        self.pushed.append((stage_name, lease_epoch, result_json, len(files)))
+    def push_stage(
+        self, job_id, stage_name, lease_epoch, result_json, files, compute_seconds=None
+    ):
+        self.pushed.append((stage_name, lease_epoch, result_json, len(files), compute_seconds))
         return self._push_returns.get(stage_name, True)
 
     def complete(self, job_id, lease_epoch):
@@ -180,12 +182,12 @@ def test_runs_all_stages_in_order_then_completes(patch_computes, cache_dir):
 
     assert ran is True
     assert source.fetched == ["kano/clip.mp4"]
-    pushed_stages = [stage for stage, _e, _r, _n in client.pushed]
+    pushed_stages = [stage for stage, _e, _r, _n, _t in client.pushed]
     assert pushed_stages == STAGE_NAMES  # register first, image_embed last, all in order
     assert client.completed == [42]
     assert client.failed == []
     # Every push carried the claim's lease_epoch.
-    assert all(epoch == 3 for _s, epoch, _r, _n in client.pushed)
+    assert all(epoch == 3 for _s, epoch, _r, _n, _t in client.pushed)
 
 
 def test_success_logs_progress_without_verbose_details(
@@ -217,7 +219,7 @@ def test_resume_skips_stages_already_done(patch_computes, cache_dir):
     )
     worker.run_one_distributed(client, FakeSource(), "w1", 120, cache_dir=cache_dir)
 
-    pushed_stages = [stage for stage, _e, _r, _n in client.pushed]
+    pushed_stages = [stage for stage, _e, _r, _n, _t in client.pushed]
     assert "register" not in pushed_stages
     assert "transcribe" not in pushed_stages
     assert pushed_stages[0] == "parse_transcript"
@@ -242,7 +244,7 @@ def test_resume_logs_skipped_stages(patch_computes, cache_dir, capsys):
 def test_locate_media_pushes_empty_result_string(patch_computes, cache_dir):
     client = FakeClient(claim_result=_claim())
     worker.run_one_distributed(client, FakeSource(), "w1", 120, cache_dir=cache_dir)
-    by_stage = {stage: result_json for stage, _e, result_json, _n in client.pushed}
+    by_stage = {stage: result_json for stage, _e, result_json, _n, _t in client.pushed}
     assert by_stage["locate_media"] == ""
     # A model-bearing stage serializes to JSON (non-empty).
     assert by_stage["register"] and by_stage["register"] != ""
@@ -254,7 +256,7 @@ def test_409_push_aborts_before_complete(patch_computes, cache_dir):
     ran = worker.run_one_distributed(client, FakeSource(), "w1", 120, cache_dir=cache_dir)
 
     assert ran is True
-    pushed_stages = [stage for stage, _e, _r, _n in client.pushed]
+    pushed_stages = [stage for stage, _e, _r, _n, _t in client.pushed]
     assert pushed_stages == ["register", "locate_media", "transcribe"]  # stopped at the 409
     assert client.completed == []
     assert client.failed == []
@@ -268,6 +270,20 @@ def test_409_push_logs_lease_lost_and_not_complete(patch_computes, cache_dir, ca
     captured = capsys.readouterr()
     assert "[worker] lease-lost job=42 epoch=3 stage=transcribe reason=push-409" in captured.err
     assert "[worker] complete job=42" not in captured.out
+
+
+def test_push_stage_includes_rounded_compute_seconds(
+    patch_computes, cache_dir, monkeypatch
+):
+    ticks = iter(
+        [float(i) for pair in ((n, n + 0.1234) for n in range(len(STAGE_NAMES))) for i in pair]
+    )
+    monkeypatch.setattr(worker.time, "perf_counter", lambda: next(ticks))
+    client = FakeClient(claim_result=_claim())
+
+    worker.run_one_distributed(client, FakeSource(), "w1", 120, cache_dir=cache_dir)
+
+    assert [seconds for _s, _e, _r, _n, seconds in client.pushed] == [0.123] * len(STAGE_NAMES)
 
 
 def test_exception_triggers_fail(patch_computes, cache_dir, monkeypatch):

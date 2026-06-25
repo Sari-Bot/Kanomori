@@ -88,6 +88,8 @@ class CoordinatorClient:
         lease_epoch: int,
         result_json: str,
         files: list[tuple[str, bytes]],
+        *,
+        compute_seconds: float | None = None,
     ) -> bool:
         """Push one stage's result + artifacts (multipart). ``False`` on 409, else raise on error.
 
@@ -105,9 +107,12 @@ class CoordinatorClient:
         multipart.extend(
             ("files", (name, content, "application/octet-stream")) for name, content in files
         )
+        data = {"lease_epoch": str(int(lease_epoch))}
+        if compute_seconds is not None:
+            data["compute_seconds"] = f"{float(compute_seconds):.3f}"
         resp = self._client.post(
             self._url(f"{int(job_id)}/stage/{stage_name}"),
-            data={"lease_epoch": str(int(lease_epoch))},
+            data=data,
             files=multipart,
             headers=self._headers(),
         )
