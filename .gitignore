@@ -26,6 +26,7 @@ media/
 # Ignore the *contents* (samples/*) not the dir itself, so the negations below apply.
 samples/*
 !samples/README.md
+!samples/README.zh-CN.md
 !samples/manifest.jsonl
 
 # OS

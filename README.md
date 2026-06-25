@@ -1,217 +1,131 @@
 # Kanomori
 
-Multimodal, **moment-level** retrieval over VTuber (鹿乃 / Kano Mahoro) livestream archives.
-Given a screenshot, a transcript fragment, lyrics, or a vague memory, Kanomori recovers the
-exact **source stream and timestamp** — not just a title or tag match.
+[简体中文](README.zh-CN.md) | English
 
-> Even if you only remember a line, a screenshot, a song, or a vague moment, Kanomori helps
-> recover the original livestream and timestamp.
+<p align="center">
+  <img src="imgs/logo.png" alt="Kanomori logo" width="360">
+</p>
 
-This is a Phase-1 MVP under active construction. See `HANDOFF.md` for current build status,
-`docs/ARCHITECTURE.md` for decisions and rationale, and `kanomori_project_white_paper.md` for
-the full product vision.
+Kanomori is a multimodal, moment-level retrieval system for VTuber livestream archives.
+Given a transcript fragment, screenshot, lyric line, or vague memory, it aims to recover the
+exact source stream and timestamp.
 
-Distributed ingestion usage for the current coordinator/worker system lives in
-`docs/distributed-ingestion.md`.
+The current codebase is a Phase-1 MVP focused on real ingestion and retrieval infrastructure:
+distributed offline ingestion, transcript search, screenshot search, and scene-aware reranking.
 
-## How it works
+## What is implemented
 
-Two loosely-coupled halves:
+- `POST /search/transcript` for transcript-first retrieval over indexed segments
+- `POST /search/screenshot` for screenshot retrieval with OCR + image embeddings
+- `POST /ingest` and `POST /ingest/batch` for enqueueing offline ingestion jobs
+- `GET /ingest/{job_id}` for job status
+- `POST /jobs/*` coordinator endpoints for remote workers
+- A small server-rendered demo UI built with Jinja2 + htmx
 
-- **Offline ingestion (GPU-tolerant, batch):** media → audio → transcript → frames → OCR →
-  scene classification → image embeddings → indexes. Resumable and idempotent.
-- **Online query (CPU, low-latency):** lexical + vector + metadata search with scene-aware
-  reranking over a small candidate set.
+## System shape
 
-ASR is delegated to the sibling **[KITS](https://github.com/kanbereina/KITS)** project (a
-Kano-tuned kotoba-whisper pipeline), invoked as a **subprocess** — never imported — so its
-GPU/torch stack stays isolated from Kanomori's CPU query path. Kanomori does storage and
-retrieval; KITS produces transcripts.
+Kanomori is split into two loosely coupled halves:
 
-## Stack
+- Offline ingestion: register media, extract audio and frames, transcribe through KITS,
+  run OCR, classify scenes, build embeddings, and persist derived artifacts
+- Online query: run low-latency transcript and screenshot retrieval against PostgreSQL
+  indexes and rerank candidates into timestamped hits
 
-FastAPI · PostgreSQL + pgvector (one datastore: HNSW vectors + tsvector full-text + metadata)
-· BGE-M3 embeddings · DINOv2 + SigLIP (image) · PySceneDetect · fugashi (Japanese
-tokenization) · uv · Jinja2 + htmx UI. Single-machine deployment; GPU only for offline
-ingestion.
+The query path is CPU-oriented. Heavy model work belongs to the offline worker path.
 
-## Setup
+## Quickstart
 
-Requires [uv](https://docs.astral.sh/uv/), Docker (+ Compose), and ffmpeg. A sibling KITS
-checkout (`uv sync`-ed in its own venv) is needed only to run real transcription; tests mock it.
+Prerequisites:
 
-```bash
-uv sync                       # core + dev deps (fast; no torch)
-uv sync --group ingest        # + frame/OCR/tokenization deps (offline host)
-uv sync --group embed         # + embedding/scene models (pulls CPU torch)
-uv sync --group worker-cpu    # full CPU worker: ingest + embed
-uv sync --group worker-cuda   # full CUDA worker: ingest-base + CUDA OCR + embed
-uv sync --group ocr-eval      # optional OCR bake-off engines (not production default)
-uv sync --group ocr-cuda      # CUDA OCR leaf group; prefer worker-cuda for full workers
-uv sync --group ocr-trt       # optional CUDA bindings for NVIDIA TensorRT OCR
+- `uv`
+- Docker + Docker Compose
+- `ffmpeg`
+- A sibling [KITS](https://github.com/kanbereina/KITS) checkout for real transcription
 
-cp .env.example .env          # adjust DATABASE_URL / KITS_DIR / MEDIA_ROOT if needed
-docker compose up -d          # PostgreSQL + pgvector on localhost:5433
-uv run kanomori-migrate       # apply migrations/*.sql
-```
-
-## Run
+Install only what you need:
 
 ```bash
-uv run pytest                                  # unit + mocked-integration tests
-uv run ruff check .                            # lint
-uv run uvicorn kanomori.api.app:app --reload   # API (available from Step 1)
-uv run kanomori-worker                         # ingestion worker loop (available from Step 1)
-```
-
-Then `POST /ingest` with a local clip's `media_path`, poll `GET /ingest/{job_id}` until
-`complete`, and `POST /search/transcript` with a phrase to get ranked stream + timestamp hits.
-
-## OCR refinement
-
-OCR is configured as `model + backend` so the ingestion and screenshot-query paths can use the
-same `OcrReader -> list[OcrResult]` contract while swapping inference backends underneath.
-Defaults are:
-
-```bash
-KANOMORI_INGEST_OCR_MODEL=ppocrv5_server
-KANOMORI_INGEST_OCR_BACKEND=onnxruntime
-KANOMORI_QUERY_OCR_MODEL=ppocrv5_server
-KANOMORI_QUERY_OCR_BACKEND=onnxruntime
-```
-
-Offline workers also support per-stage CPU/GPU pinning for the stages that can reasonably run on
-either device:
-
-```bash
-KANOMORI_STAGE_PARSE_TRANSCRIPT_DEVICE=cpu
-KANOMORI_STAGE_OCR_DEVICE=cpu
-KANOMORI_STAGE_CLASSIFY_DEVICE=cpu
-KANOMORI_STAGE_IMAGE_EMBED_DEVICE=cpu
-```
-
-These are worker-local settings, not per-job routing. `cpu` forces CPU execution for that stage.
-`gpu` means the worker must initialize that stage on the process-visible default GPU; if CUDA or
-the required GPU backend is unavailable, the stage fails fast instead of silently falling back.
-
-Supported models are `legacy_rapidocr`, `ppocrv5_mobile`, and `ppocrv5_server`. Supported
-backends are `onnxruntime`, `cuda`, and `tensorrt`; `legacy_rapidocr` supports only
-`onnxruntime`.
-
-CPU OCR setup:
-
-```bash
-uv sync --group ingest --group ocr-eval
-```
-
-CUDA OCR setup uses ONNX Runtime's CUDA Execution Provider. Use this when TensorRT recall is
-poor but GPU latency is still needed:
-
-```bash
+uv sync
+uv sync --group ingest
+uv sync --group embed
+uv sync --group worker-cpu
 uv sync --group worker-cuda
+cp .env.example .env
+docker compose up -d
+uv run kanomori-migrate
 ```
 
-The CUDA backend preloads NVIDIA wheel libraries from `site-packages/nvidia/*/lib` before
-importing ONNX Runtime, so a normal uv-managed venv is enough on most NVIDIA Linux hosts. On WSL,
-if the driver library is not discoverable, also expose the WSL driver path before running OCR:
+Run the main services:
 
 ```bash
-export LD_LIBRARY_PATH="/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+uv run uvicorn kanomori.api.app:app --reload
+uv run kanomori-worker
 ```
 
-On WSL GPU workers, keep the CUDA wheel and library path setup consistent:
+Then:
 
-```bash
-uv sync --group worker-cuda
+1. `POST /ingest` or `POST /ingest/batch`
+2. Poll `GET /ingest/{job_id}`
+3. Query with `POST /search/transcript` or `POST /search/screenshot`
+
+For a step-by-step setup guide, see [docs/getting-started.md](docs/getting-started.md).
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md)
+- [Docs Index](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Distributed Ingestion](docs/distributed-ingestion.md)
+- [CUDA Worker Docker Deployment](docs/cuda-worker-docker.md)
+- [Sample Corpus Layout](samples/README.md)
+
+## Current status
+
+Implemented now:
+
+- Transcript search
+- Screenshot search
+- Resumable ingestion pipeline
+- Distributed coordinator/worker ingestion
+- OCR backend selection and worker stage device pinning
+
+Planned later:
+
+- Audio snippet search
+- Karaoke and edited clip reverse search
+- Vague-memory and evidence-based QA workflows
+
+## Repository layout
+
+```text
+src/kanomori/            application code
+docs/                    maintainer and operator docs
+samples/                 local source-store mirror and manifest examples
+migrations/              forward-only SQL migrations
+tests/                   unit and integration tests
+imgs/                    project assets
 ```
 
-If the worker still reports only `['AzureExecutionProvider', 'CPUExecutionProvider']`, the venv
-likely has both the CPU `onnxruntime` wheel and `onnxruntime-gpu` installed at once. A clean WSL
-repair is:
+## Related files
 
-```bash
-cd /path/to/Kanomori
-uv pip uninstall onnxruntime
-uv pip install --reinstall onnxruntime-gpu==1.27.0
-```
+- `kanomori_project_white_paper.md`: original product vision
+- `HANDOFF_TO_GPT.md`: internal continuation notes for ongoing development sessions
 
-Then ensure every worker launch shell exports both the WSL driver path and the NVIDIA wheel
-libraries before `uv run`, for example:
+Public docs in this README set describe the code as currently implemented.
 
-```bash
-KANOMORI_ROOT=/path/to/Kanomori
-KANOMORI_NVIDIA_SITE="$KANOMORI_ROOT/.venv/lib/python3.12/site-packages/nvidia"
-KANOMORI_NVIDIA_LIBS="$(find "$KANOMORI_NVIDIA_SITE" -mindepth 2 -maxdepth 3 -type f \( -name "libcudart.so*" -o -name "libcudnn.so*" -o -name "libcublas.so*" \) -printf "%h\n" | sort -u | paste -sd: -)"
-export LD_LIBRARY_PATH="$KANOMORI_NVIDIA_LIBS:/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-```
+## Acknowledgements
 
-Verify provider discovery:
+Kanomori began as a personal project inspired by the livestream archives and creative works of Kano (鹿乃).
 
-```bash
-uv run python - <<'PY'
-from kanomori.ocr_tensorrt import ensure_cuda_ep_available
-from kanomori.ocr import OcrBackendUnavailable
+The visual direction of the project is inspired by the picture book 「こまったましろ」, written by 鹿乃 and illustrated by 水玉子.
 
-ensure_cuda_ep_available(OcrBackendUnavailable)
-print("CUDAExecutionProvider available")
-PY
-```
+All rights to the original characters, illustrations, and related works belong to their respective creators and publishers.
 
-TensorRT remains available for speed experiments and requires an NVIDIA Linux host, the
-`ocr-trt` dependency group, and the TensorRT Python package from NVIDIA's package index, for
-example:
-
-```bash
-uv sync --group worker-trt
-uv pip install --extra-index-url https://pypi.nvidia.com/ tensorrt
-```
-
-Runtime OCR falls back from unavailable CUDA or TensorRT to ONNX Runtime when fallback is
-allowed, but benchmark runs fail instead so backend numbers stay honest.
-
-Ingest OCR is slightly stricter when `KANOMORI_STAGE_OCR_DEVICE=gpu`: the worker disables silent
-fallback and requires `KANOMORI_INGEST_OCR_BACKEND` to be `cuda` or `tensorrt`. Query-time OCR
-keeps the previous fallback behavior and remains independent of the worker stage-device settings.
-
-To benchmark PP-OCRv5 candidates:
-
-```bash
-uv sync --group ingest --group ocr-eval --group ocr-cuda
-uv run kanomori-ocr-benchmark \
-  --cases eval/ocr/kanomori_frames.jsonl \
-  --models ppocrv5_server \
-  --backends onnxruntime,cuda,tensorrt
-```
-
-Docker deployment for a remote NVIDIA worker is documented in `docs/cuda-worker-docker.md`.
-
-The deprecated `--engines legacy_rapidocr,rapidocr_ppocrv5_mobile` form still works for old
-ONNX-only bake-offs.
-
-Benchmark cases are JSONL records with an image path and expected visible terms:
-
-```json
-{"id":"frame-001","image":"media/.../frame.jpg","expected_terms":["鹿乃","歌枠"]}
-```
-
-`image` may be a glob such as `media/*/frames/frame_000000_000.jpg`, but it must match
-exactly one file. `expected_terms` should be phrase-level visible substrings: split long
-sentences into stable chunks that matter for retrieval, while avoiding single-character terms.
-
-## Layout
-
-```
-src/kanomori/
-  config.py db.py models.py migrate.py
-  srt.py fusion.py scene.py text.py kits_client.py   # pure logic + the KITS seam
-  ingest/    embed/    retrieval/    api/    web/
-migrations/   # forward-only plain SQL
-tests/        # unit/ integration/ fixtures/
-samples/      # manual ingest inputs (gitignored; README tracked)
-```
+Kanomori is an independent fan-created project and is not affiliated with or endorsed by the original creators.
 
 ## License
 
-MIT (Kanomori's own code). KITS is AGPL-3.0 and is used only as an external subprocess.
-Archive content is copyright-sensitive: Kanomori stores derived indexes, source links, and
-short preview thumbnails — it does not host source video.
+Kanomori's source code is licensed under MIT.
+
+KITS is a separate AGPL-3.0 project and is used only as an external subprocess. Archive content
+and source streams remain subject to the rights of their original owners.
