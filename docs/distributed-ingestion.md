@@ -65,6 +65,16 @@ Worker host:
 - Access to the coordinator URL
 - GPU support if you expect real transcription, scene classification, and image embedding performance
 
+Use the aggregate dependency groups for exact syncs:
+
+```bash
+uv sync --group worker-cpu
+uv sync --group worker-cuda
+```
+
+Do not use `uv sync --group ocr-cuda` as a full worker install target; exact sync removes packages
+from groups that are not selected. `worker-cuda` is the reproducible full CUDA worker target.
+
 ## Configuration
 
 The runtime settings come from `src/kanomori/config.py`. The distributed path depends on these variables.
@@ -130,7 +140,7 @@ and the NVIDIA runtime libraries shipped in the venv.
 Recommended setup:
 
 ```bash
-uv sync --group ingest --group ocr-cuda
+uv sync --group worker-cuda
 ```
 
 If `uv run python -c 'import onnxruntime as ort; print(ort.get_available_providers())'`

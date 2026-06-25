@@ -825,8 +825,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "flagembedding" },
-    { name = "fugashi" },
     { name = "jinja2" },
     { name = "numpy" },
     { name = "pgvector" },
@@ -834,7 +832,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
-    { name = "torchvision" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -856,12 +853,29 @@ ingest = [
     { name = "fugashi", extra = ["unidic-lite"] },
     { name = "imagehash" },
     { name = "onnxruntime" },
+    { name = "opencv-python" },
     { name = "pillow" },
     { name = "rapidocr" },
     { name = "rapidocr-onnxruntime" },
     { name = "scenedetect" },
 ]
+ingest-base = [
+    { name = "ffmpeg-python" },
+    { name = "fugashi", extra = ["unidic-lite"] },
+    { name = "imagehash" },
+    { name = "opencv-python" },
+    { name = "pillow" },
+    { name = "rapidocr" },
+    { name = "scenedetect" },
+]
+ocr-cpu = [
+    { name = "onnxruntime" },
+    { name = "rapidocr-onnxruntime" },
+]
 ocr-cuda = [
+    { name = "ffmpeg-python" },
+    { name = "fugashi", extra = ["unidic-lite"] },
+    { name = "imagehash" },
     { name = "nvidia-cublas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cuda-runtime", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -869,20 +883,88 @@ ocr-cuda = [
     { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-curand", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "opencv-python" },
+    { name = "pillow" },
+    { name = "rapidocr" },
+    { name = "scenedetect" },
 ]
 ocr-eval = [
+    { name = "ffmpeg-python" },
+    { name = "fugashi", extra = ["unidic-lite"] },
+    { name = "imagehash" },
     { name = "onnxruntime" },
+    { name = "opencv-python" },
+    { name = "pillow" },
     { name = "rapidocr" },
+    { name = "rapidocr-onnxruntime" },
+    { name = "scenedetect" },
 ]
 ocr-trt = [
     { name = "cuda-bindings", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+worker-cpu = [
+    { name = "ffmpeg-python" },
+    { name = "flagembedding" },
+    { name = "fugashi", extra = ["unidic-lite"] },
+    { name = "imagehash" },
+    { name = "onnxruntime" },
+    { name = "opencv-python" },
+    { name = "pillow" },
+    { name = "rapidocr" },
+    { name = "rapidocr-onnxruntime" },
+    { name = "scenedetect" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "transformers" },
+]
+worker-cuda = [
+    { name = "ffmpeg-python" },
+    { name = "flagembedding" },
+    { name = "fugashi", extra = ["unidic-lite"] },
+    { name = "imagehash" },
+    { name = "nvidia-cublas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cuda-runtime", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cudnn-cu13", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-curand", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "opencv-python" },
+    { name = "pillow" },
+    { name = "rapidocr" },
+    { name = "scenedetect" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "transformers" },
+]
+worker-trt = [
+    { name = "cuda-bindings", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "ffmpeg-python" },
+    { name = "flagembedding" },
+    { name = "fugashi", extra = ["unidic-lite"] },
+    { name = "imagehash" },
+    { name = "nvidia-cublas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cuda-runtime", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cudnn-cu13", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-curand", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "opencv-python" },
+    { name = "pillow" },
+    { name = "rapidocr" },
+    { name = "scenedetect" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "transformers" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "flagembedding", specifier = ">=1.4.0" },
-    { name = "fugashi", specifier = ">=1.5.2" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pgvector", specifier = ">=0.3.6" },
@@ -890,7 +972,6 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "python-multipart", specifier = ">=0.0.12" },
-    { name = "torchvision", specifier = ">=0.27.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
 
@@ -912,12 +993,29 @@ ingest = [
     { name = "fugashi", extras = ["unidic-lite"], specifier = ">=1.3" },
     { name = "imagehash", specifier = ">=4.3" },
     { name = "onnxruntime", specifier = ">=1.20" },
+    { name = "opencv-python", specifier = ">=4.8" },
     { name = "pillow", specifier = ">=11.0" },
     { name = "rapidocr", specifier = ">=3.9.0" },
     { name = "rapidocr-onnxruntime", specifier = ">=1.4" },
-    { name = "scenedetect", extras = ["opencv"], specifier = ">=0.6.5" },
+    { name = "scenedetect", specifier = ">=0.6.5" },
+]
+ingest-base = [
+    { name = "ffmpeg-python", specifier = ">=0.2" },
+    { name = "fugashi", extras = ["unidic-lite"], specifier = ">=1.3" },
+    { name = "imagehash", specifier = ">=4.3" },
+    { name = "opencv-python", specifier = ">=4.8" },
+    { name = "pillow", specifier = ">=11.0" },
+    { name = "rapidocr", specifier = ">=3.9.0" },
+    { name = "scenedetect", specifier = ">=0.6.5" },
+]
+ocr-cpu = [
+    { name = "onnxruntime", specifier = ">=1.20" },
+    { name = "rapidocr-onnxruntime", specifier = ">=1.4" },
 ]
 ocr-cuda = [
+    { name = "ffmpeg-python", specifier = ">=0.2" },
+    { name = "fugashi", extras = ["unidic-lite"], specifier = ">=1.3" },
+    { name = "imagehash", specifier = ">=4.3" },
     { name = "nvidia-cublas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.1.1.3" },
     { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.0.88" },
     { name = "nvidia-cuda-runtime", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.0.96" },
@@ -925,12 +1023,82 @@ ocr-cuda = [
     { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==12.0.0.61" },
     { name = "nvidia-curand", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==10.4.0.35" },
     { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==1.27.0" },
+    { name = "opencv-python", specifier = ">=4.8" },
+    { name = "pillow", specifier = ">=11.0" },
+    { name = "rapidocr", specifier = ">=3.9.0" },
+    { name = "scenedetect", specifier = ">=0.6.5" },
 ]
 ocr-eval = [
+    { name = "ffmpeg-python", specifier = ">=0.2" },
+    { name = "fugashi", extras = ["unidic-lite"], specifier = ">=1.3" },
+    { name = "imagehash", specifier = ">=4.3" },
     { name = "onnxruntime", specifier = ">=1.20" },
+    { name = "opencv-python", specifier = ">=4.8" },
+    { name = "pillow", specifier = ">=11.0" },
     { name = "rapidocr", specifier = ">=3.9.0" },
+    { name = "rapidocr-onnxruntime", specifier = ">=1.4" },
+    { name = "scenedetect", specifier = ">=0.6.5" },
 ]
 ocr-trt = [{ name = "cuda-bindings", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=12.0" }]
+worker-cpu = [
+    { name = "ffmpeg-python", specifier = ">=0.2" },
+    { name = "flagembedding", specifier = ">=1.3" },
+    { name = "fugashi", extras = ["unidic-lite"], specifier = ">=1.3" },
+    { name = "imagehash", specifier = ">=4.3" },
+    { name = "onnxruntime", specifier = ">=1.20" },
+    { name = "opencv-python", specifier = ">=4.8" },
+    { name = "pillow", specifier = ">=11.0" },
+    { name = "rapidocr", specifier = ">=3.9.0" },
+    { name = "rapidocr-onnxruntime", specifier = ">=1.4" },
+    { name = "scenedetect", specifier = ">=0.6.5" },
+    { name = "sentence-transformers", specifier = ">=3.3" },
+    { name = "torch", specifier = ">=2.5" },
+    { name = "torchvision", specifier = ">=0.27.1" },
+    { name = "transformers", specifier = ">=4.46" },
+]
+worker-cuda = [
+    { name = "ffmpeg-python", specifier = ">=0.2" },
+    { name = "flagembedding", specifier = ">=1.3" },
+    { name = "fugashi", extras = ["unidic-lite"], specifier = ">=1.3" },
+    { name = "imagehash", specifier = ">=4.3" },
+    { name = "nvidia-cublas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.1.1.3" },
+    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.0.88" },
+    { name = "nvidia-cuda-runtime", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.0.96" },
+    { name = "nvidia-cudnn-cu13", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==9.20.0.48" },
+    { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==12.0.0.61" },
+    { name = "nvidia-curand", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==10.4.0.35" },
+    { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==1.27.0" },
+    { name = "opencv-python", specifier = ">=4.8" },
+    { name = "pillow", specifier = ">=11.0" },
+    { name = "rapidocr", specifier = ">=3.9.0" },
+    { name = "scenedetect", specifier = ">=0.6.5" },
+    { name = "sentence-transformers", specifier = ">=3.3" },
+    { name = "torch", specifier = ">=2.5" },
+    { name = "torchvision", specifier = ">=0.27.1" },
+    { name = "transformers", specifier = ">=4.46" },
+]
+worker-trt = [
+    { name = "cuda-bindings", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=12.0" },
+    { name = "ffmpeg-python", specifier = ">=0.2" },
+    { name = "flagembedding", specifier = ">=1.3" },
+    { name = "fugashi", extras = ["unidic-lite"], specifier = ">=1.3" },
+    { name = "imagehash", specifier = ">=4.3" },
+    { name = "nvidia-cublas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.1.1.3" },
+    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.0.88" },
+    { name = "nvidia-cuda-runtime", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==13.0.96" },
+    { name = "nvidia-cudnn-cu13", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==9.20.0.48" },
+    { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==12.0.0.61" },
+    { name = "nvidia-curand", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==10.4.0.35" },
+    { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==1.27.0" },
+    { name = "opencv-python", specifier = ">=4.8" },
+    { name = "pillow", specifier = ">=11.0" },
+    { name = "rapidocr", specifier = ">=3.9.0" },
+    { name = "scenedetect", specifier = ">=0.6.5" },
+    { name = "sentence-transformers", specifier = ">=3.3" },
+    { name = "torch", specifier = ">=2.5" },
+    { name = "torchvision", specifier = ">=0.27.1" },
+    { name = "transformers", specifier = ">=4.46" },
+]
 
 [[package]]
 name = "lxml"

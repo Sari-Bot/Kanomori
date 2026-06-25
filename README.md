@@ -44,8 +44,10 @@ checkout (`uv sync`-ed in its own venv) is needed only to run real transcription
 uv sync                       # core + dev deps (fast; no torch)
 uv sync --group ingest        # + frame/OCR/tokenization deps (offline host)
 uv sync --group embed         # + embedding/scene models (pulls CPU torch)
+uv sync --group worker-cpu    # full CPU worker: ingest + embed
+uv sync --group worker-cuda   # full CUDA worker: ingest-base + CUDA OCR + embed
 uv sync --group ocr-eval      # optional OCR bake-off engines (not production default)
-uv sync --group ocr-cuda      # optional ONNX Runtime CUDA OCR on NVIDIA Linux
+uv sync --group ocr-cuda      # CUDA OCR leaf group; prefer worker-cuda for full workers
 uv sync --group ocr-trt       # optional CUDA bindings for NVIDIA TensorRT OCR
 
 cp .env.example .env          # adjust DATABASE_URL / KITS_DIR / MEDIA_ROOT if needed
@@ -106,7 +108,7 @@ CUDA OCR setup uses ONNX Runtime's CUDA Execution Provider. Use this when Tensor
 poor but GPU latency is still needed:
 
 ```bash
-uv sync --group ingest --group ocr-cuda
+uv sync --group worker-cuda
 ```
 
 The CUDA backend preloads NVIDIA wheel libraries from `site-packages/nvidia/*/lib` before
@@ -120,7 +122,7 @@ export LD_LIBRARY_PATH="/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 On WSL GPU workers, keep the CUDA wheel and library path setup consistent:
 
 ```bash
-uv sync --group ingest --group ocr-cuda
+uv sync --group worker-cuda
 ```
 
 If the worker still reports only `['AzureExecutionProvider', 'CPUExecutionProvider']`, the venv
@@ -160,7 +162,7 @@ TensorRT remains available for speed experiments and requires an NVIDIA Linux ho
 example:
 
 ```bash
-uv sync --group ocr-trt
+uv sync --group worker-trt
 uv pip install --extra-index-url https://pypi.nvidia.com/ tensorrt
 ```
 
@@ -180,6 +182,8 @@ uv run kanomori-ocr-benchmark \
   --models ppocrv5_server \
   --backends onnxruntime,cuda,tensorrt
 ```
+
+Docker deployment for a remote NVIDIA worker is documented in `docs/cuda-worker-docker.md`.
 
 The deprecated `--engines legacy_rapidocr,rapidocr_ppocrv5_mobile` form still works for old
 ONNX-only bake-offs.

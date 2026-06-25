@@ -20,9 +20,6 @@ dependencies = [
     "jinja2>=3.1",
     "python-multipart>=0.0.12",
     "numpy>=2.0",
-    "fugashi>=1.5.2",
-    "flagembedding>=1.4.0",
-    "torchvision>=0.27.1",
 ]
 
 [project.scripts]
@@ -44,24 +41,35 @@ dev = [
     "ruff>=0.8",
     "httpx>=0.28",
 ]
-# Offline ingestion (frames/OCR/JP tokenization). CPU, heavier than core. `uv sync --group ingest`.
-ingest = [
+# Shared offline ingestion dependencies that do not select an ONNX Runtime wheel.
+ingest-base = [
     "pillow>=11.0",
     "imagehash>=4.3",
-    "scenedetect[opencv]>=0.6.5",
+    "scenedetect>=0.6.5",
+    "opencv-python>=4.8",
     "ffmpeg-python>=0.2",
     "fugashi[unidic-lite]>=1.3",
     "rapidocr>=3.9.0",
+]
+# CPU ONNX Runtime OCR backend. Kept separate so CUDA worker installs do not also pull the
+# CPU onnxruntime wheel into the same environment as onnxruntime-gpu.
+ocr-cpu = [
     "rapidocr-onnxruntime>=1.4",
     "onnxruntime>=1.20",
 ]
+# Offline ingestion (frames/OCR/JP tokenization) with CPU OCR. `uv sync --group ingest`.
+ingest = [
+    { include-group = "ingest-base" },
+    { include-group = "ocr-cpu" },
+]
 # Optional OCR bake-off engines. Not installed by default and not required for production.
 ocr-eval = [
-    "rapidocr>=3.9.0",
-    "onnxruntime>=1.20",
+    { include-group = "ingest-base" },
+    { include-group = "ocr-cpu" },
 ]
 # Optional NVIDIA-only ONNX Runtime CUDA OCR backend. Linux x86_64 only.
 ocr-cuda = [
+    { include-group = "ingest-base" },
     "onnxruntime-gpu==1.27.0; platform_system == 'Linux' and platform_machine == 'x86_64'",
     "nvidia-cuda-runtime==13.0.96; platform_system == 'Linux' and platform_machine == 'x86_64'",
     "nvidia-cuda-nvrtc==13.0.88; platform_system == 'Linux' and platform_machine == 'x86_64'",
@@ -82,6 +90,20 @@ embed = [
     "transformers>=4.46",
     "torch>=2.5",
     "torchvision>=0.27.1",
+]
+# Full worker install targets. Use these with exact `uv sync`; syncing only a leaf group will
+# remove packages from groups that are not selected.
+worker-cpu = [
+    { include-group = "ingest" },
+    { include-group = "embed" },
+]
+worker-cuda = [
+    { include-group = "ocr-cuda" },
+    { include-group = "embed" },
+]
+worker-trt = [
+    { include-group = "worker-cuda" },
+    { include-group = "ocr-trt" },
 ]
 
 # Default groups installed by bare `uv sync`. embed/ingest are opt-in to keep setup fast.

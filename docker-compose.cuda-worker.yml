@@ -1,0 +1,50 @@
+# Worker-only Compose file for an NVIDIA CUDA ingestion worker.
+# The coordinator/API/DB stay outside this file; this service only claims jobs over /jobs/*.
+services:
+  cuda-worker:
+    build:
+      context: .
+      dockerfile: docker/cuda-worker.Dockerfile
+      args:
+        CUDA_IMAGE: ${KANOMORI_CUDA_IMAGE:-nvidia/cuda:13.0.2-cudnn-runtime-ubuntu24.04}
+        UV_IMAGE: ${KANOMORI_UV_IMAGE:-ghcr.io/astral-sh/uv:0.11.19}
+    image: ${KANOMORI_CUDA_WORKER_IMAGE:-kanomori-cuda-worker:latest}
+    container_name: ${KANOMORI_CUDA_WORKER_CONTAINER:-kanomori-cuda-worker}
+    restart: unless-stopped
+    gpus: all
+    environment:
+      KANOMORI_COORDINATOR_URL: ${KANOMORI_COORDINATOR_URL:?set KANOMORI_COORDINATOR_URL}
+      KANOMORI_COORDINATOR_TOKEN: ${KANOMORI_COORDINATOR_TOKEN:?set KANOMORI_COORDINATOR_TOKEN}
+      KANOMORI_KITS_DIR: /opt/kits
+      KANOMORI_MEDIA_ROOT: /app/media
+      KANOMORI_MEDIA_SOURCE: ${KANOMORI_MEDIA_SOURCE:-local}
+      KANOMORI_MEDIA_SOURCE_ROOT: /data/source
+      KANOMORI_MEDIA_SOURCE_URL: ${KANOMORI_MEDIA_SOURCE_URL:-}
+      KANOMORI_MEDIA_SOURCE_USER: ${KANOMORI_MEDIA_SOURCE_USER:-}
+      KANOMORI_MEDIA_SOURCE_PASSWORD: ${KANOMORI_MEDIA_SOURCE_PASSWORD:-}
+      KANOMORI_INGEST_OCR_MODEL: ${KANOMORI_INGEST_OCR_MODEL:-ppocrv5_server}
+      KANOMORI_INGEST_OCR_BACKEND: ${KANOMORI_INGEST_OCR_BACKEND:-cuda}
+      KANOMORI_STAGE_PARSE_TRANSCRIPT_DEVICE: ${KANOMORI_STAGE_PARSE_TRANSCRIPT_DEVICE:-gpu}
+      KANOMORI_STAGE_OCR_DEVICE: ${KANOMORI_STAGE_OCR_DEVICE:-gpu}
+      KANOMORI_STAGE_CLASSIFY_DEVICE: ${KANOMORI_STAGE_CLASSIFY_DEVICE:-gpu}
+      KANOMORI_STAGE_IMAGE_EMBED_DEVICE: ${KANOMORI_STAGE_IMAGE_EMBED_DEVICE:-gpu}
+    volumes:
+      - ${KANOMORI_KITS_DIR_HOST:?set KANOMORI_KITS_DIR_HOST}:/opt/kits
+      - kanomori_kits_venv:/opt/kits/.venv
+      - ${KANOMORI_MEDIA_SOURCE_ROOT_HOST:-./samples}:/data/source:ro
+      - kanomori_cuda_worker_media:/app/media
+      - kanomori_hf_cache:/root/.cache/huggingface
+      - kanomori_rapidocr_cache:/root/.cache/rapidocr
+    command:
+      - uv
+      - run
+      - --no-sync
+      - kanomori-worker
+      - --worker-id
+      - ${KANOMORI_WORKER_ID:-cuda-worker-01}
+
+volumes:
+  kanomori_cuda_worker_media:
+  kanomori_hf_cache:
+  kanomori_rapidocr_cache:
+  kanomori_kits_venv:

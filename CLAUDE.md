@@ -120,7 +120,9 @@ Dependency groups are opt-in to keep core setup torch-free (`tool.uv`
 uv sync                       # core + dev (fast; no torch) — enough for pure-logic tests
 uv sync --group ingest        # frame/OCR/JP-tokenization deps (offline host)
 uv sync --group embed         # embedding + scene models (pulls CPU torch)
-uv sync --group ocr-cuda      # optional ONNX Runtime CUDA OCR (NVIDIA Linux x86_64 only)
+uv sync --group worker-cpu    # full CPU worker: ingest + embed
+uv sync --group worker-cuda   # full CUDA worker: ingest-base + CUDA OCR + embed
+uv sync --group ocr-cuda      # CUDA OCR leaf group; prefer worker-cuda for full workers
 ```
 
 Database + migrations (Postgres+pgvector runs in Docker on host port 5433):
@@ -166,6 +168,8 @@ job. Heartbeats extend the lease; an expired lease makes the job claimable again
 without redoing stages already marked done (expensive KITS transcribe + scene
 detect are checkpointed as artifacts). See
 `docs/plans/2026-06-24-distributed-ingestion-design.md`.
+
+CUDA worker Docker deployment lives in `docs/cuda-worker-docker.md`.
 
 Tests + lint:
 
