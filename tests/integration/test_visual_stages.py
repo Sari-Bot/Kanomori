@@ -4,9 +4,29 @@ import numpy as np
 import pytest
 
 from kanomori.ingest import pipeline
+from kanomori.ingest.artifacts import frame_path_for
 from kanomori.ingest.stages import classify, image_embed, ocr, register
 
 pytestmark = pytest.mark.requires_db
+
+
+@pytest.fixture(autouse=True)
+def _media_root(tmp_path, monkeypatch):
+    """Point MEDIA_ROOT at a tmp dir: the visual stages' compute() globs frames off disk now."""
+    monkeypatch.setenv("KANOMORI_MEDIA_ROOT", str(tmp_path / "media"))
+    from kanomori.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def _write_frames_on_disk(content_hash: str, timestamps) -> None:
+    """Drop deterministically-named JPEGs so compute()'s frames_on_disk() finds them."""
+    for ts in timestamps:
+        p = frame_path_for(content_hash, ts)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"jpeg-bytes")
 
 
 class SkipStage:
@@ -18,9 +38,10 @@ class SkipStage:
         return "skipped"
 
 
-def _video(conn) -> int:
+def _video(conn, content_hash: str = "visualstagehash") -> int:
     return conn.execute(
-        "INSERT INTO videos (content_hash, title) VALUES ('visualstagehash', 'visual') RETURNING id"
+        "INSERT INTO videos (content_hash, title) VALUES (%s, 'visual') RETURNING id",
+        (content_hash,),
     ).fetchone()[0]
 
 
@@ -44,12 +65,14 @@ def test_pipeline_treats_skipped_stage_as_terminal(db_conn, tmp_path, monkeypatc
 
 
 def test_ocr_stage_inserts_tokenized_text(db_conn, tmp_path, monkeypatch) -> None:
-    vid = _video(db_conn)
-    image_path = tmp_path / "frame.jpg"
-    image_path.write_bytes(b"not-a-real-image")
+    content_hash = "ocrstagehash"
+    vid = _video(db_conn, content_hash)
+    # compute() globs frames off disk; persist() resolves frame_id by (video_id, ts_sec), so the
+    # DB frame row's ts_sec must equal the value the JPEG's deterministic name encodes.
+    _write_frames_on_disk(content_hash, [12.0])
     frame_id = db_conn.execute(
         "INSERT INTO frames (video_id, ts_sec, frame_path) VALUES (%s, 12.0, %s) RETURNING id",
-        (vid, str(image_path)),
+        (vid, str(frame_path_for(content_hash, 12.0))),
     ).fetchone()[0]
     monkeypatch.setattr(
         ocr,
@@ -59,6 +82,7 @@ def test_ocr_stage_inserts_tokenized_text(db_conn, tmp_path, monkeypatch) -> Non
 
     ctx = pipeline.IngestContext(media_path="unused")
     ctx.video_id = vid
+    ctx.content_hash = content_hash
     result = ocr.run(db_conn, ctx)
 
     row = db_conn.execute(
@@ -73,11 +97,13 @@ def test_ocr_stage_inserts_tokenized_text(db_conn, tmp_path, monkeypatch) -> Non
 
 
 def test_classify_stage_collapses_consecutive_scene_labels(db_conn, tmp_path, monkeypatch) -> None:
-    vid = _video(db_conn)
+    content_hash = "classifystagehash"
+    vid = _video(db_conn, content_hash)
+    _write_frames_on_disk(content_hash, (0.0, 8.0, 16.0))
     for ts in (0.0, 8.0, 16.0):
         db_conn.execute(
             "INSERT INTO frames (video_id, ts_sec, frame_path) VALUES (%s, %s, %s)",
-            (vid, ts, str(tmp_path / f"{ts}.jpg")),
+            (vid, ts, str(frame_path_for(content_hash, ts))),
         )
     labels = iter(
         [
@@ -90,6 +116,7 @@ def test_classify_stage_collapses_consecutive_scene_labels(db_conn, tmp_path, mo
 
     ctx = pipeline.IngestContext(media_path="unused")
     ctx.video_id = vid
+    ctx.content_hash = content_hash
     result = classify.run(db_conn, ctx)
 
     rows = db_conn.execute(
@@ -106,12 +133,12 @@ def test_classify_stage_collapses_consecutive_scene_labels(db_conn, tmp_path, mo
 
 
 def test_image_embed_stage_updates_phash_and_embedding(db_conn, tmp_path, monkeypatch) -> None:
-    vid = _video(db_conn)
-    image_path = tmp_path / "frame.jpg"
-    image_path.write_bytes(b"fake")
+    content_hash = "imageembedstagehash"
+    vid = _video(db_conn, content_hash)
+    _write_frames_on_disk(content_hash, [7.0])
     frame_id = db_conn.execute(
         "INSERT INTO frames (video_id, ts_sec, frame_path) VALUES (%s, 7.0, %s) RETURNING id",
-        (vid, str(image_path)),
+        (vid, str(frame_path_for(content_hash, 7.0))),
     ).fetchone()[0]
     vec = np.ones(768, dtype=np.float32)
     vec /= np.linalg.norm(vec)
@@ -120,6 +147,7 @@ def test_image_embed_stage_updates_phash_and_embedding(db_conn, tmp_path, monkey
 
     ctx = pipeline.IngestContext(media_path="unused")
     ctx.video_id = vid
+    ctx.content_hash = content_hash
     result = image_embed.run(db_conn, ctx)
 
     row = db_conn.execute(
@@ -132,9 +160,11 @@ def test_image_embed_stage_updates_phash_and_embedding(db_conn, tmp_path, monkey
 
 
 def test_visual_stages_skip_when_no_frames(db_conn) -> None:
-    vid = _video(db_conn)
+    content_hash = "noframeshash"
+    vid = _video(db_conn, content_hash)
     ctx = pipeline.IngestContext(media_path="unused")
     ctx.video_id = vid
+    ctx.content_hash = content_hash  # no JPEGs on disk -> compute() returns "skipped"
 
     assert ocr.run(db_conn, ctx) == "skipped"
     assert classify.run(db_conn, ctx) == "skipped"

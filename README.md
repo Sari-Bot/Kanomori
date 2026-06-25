@@ -11,6 +11,9 @@ This is a Phase-1 MVP under active construction. See `HANDOFF.md` for current bu
 `docs/ARCHITECTURE.md` for decisions and rationale, and `kanomori_project_white_paper.md` for
 the full product vision.
 
+Distributed ingestion usage for the current coordinator/worker system lives in
+`docs/distributed-ingestion.md`.
+
 ## How it works
 
 Two loosely-coupled halves:
@@ -75,6 +78,20 @@ KANOMORI_QUERY_OCR_MODEL=ppocrv5_server
 KANOMORI_QUERY_OCR_BACKEND=onnxruntime
 ```
 
+Offline workers also support per-stage CPU/GPU pinning for the stages that can reasonably run on
+either device:
+
+```bash
+KANOMORI_STAGE_PARSE_TRANSCRIPT_DEVICE=cpu
+KANOMORI_STAGE_OCR_DEVICE=cpu
+KANOMORI_STAGE_CLASSIFY_DEVICE=cpu
+KANOMORI_STAGE_IMAGE_EMBED_DEVICE=cpu
+```
+
+These are worker-local settings, not per-job routing. `cpu` forces CPU execution for that stage.
+`gpu` means the worker must initialize that stage on the process-visible default GPU; if CUDA or
+the required GPU backend is unavailable, the stage fails fast instead of silently falling back.
+
 Supported models are `legacy_rapidocr`, `ppocrv5_mobile`, and `ppocrv5_server`. Supported
 backends are `onnxruntime`, `cuda`, and `tensorrt`; `legacy_rapidocr` supports only
 `onnxruntime`.
@@ -123,6 +140,10 @@ uv pip install --extra-index-url https://pypi.nvidia.com/ tensorrt
 
 Runtime OCR falls back from unavailable CUDA or TensorRT to ONNX Runtime when fallback is
 allowed, but benchmark runs fail instead so backend numbers stay honest.
+
+Ingest OCR is slightly stricter when `KANOMORI_STAGE_OCR_DEVICE=gpu`: the worker disables silent
+fallback and requires `KANOMORI_INGEST_OCR_BACKEND` to be `cuda` or `tensorrt`. Query-time OCR
+keeps the previous fallback behavior and remains independent of the worker stage-device settings.
 
 To benchmark PP-OCRv5 candidates:
 

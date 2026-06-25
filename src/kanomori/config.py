@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+StageDevice = Literal["cpu", "gpu"]
 
 
 class Settings(BaseSettings):
@@ -30,6 +33,25 @@ class Settings(BaseSettings):
     # Root for derived media (frame thumbnails, KITS SRT/log artifacts). Never source video.
     media_root: Path = Path("./media")
 
+    # Source store the worker READS from. "local" mirrors samples/ on disk; "webdav" is the
+    # production HTTPS store. The layout is identical in both (see samples/README.md).
+    media_source: str = "local"
+    # Local mirror root when media_source == "local"; = samples/ in dev.
+    media_source_root: Path = Path("./samples")
+    # WebDAV base URL + optional basic-auth creds, used when media_source == "webdav".
+    media_source_url: str | None = None
+    media_source_user: str | None = None
+    media_source_password: str | None = None
+
+    # Shared bearer token authenticating workers to the coordinator /jobs router. Defined here so
+    # both sides resolve the same secret; None disables auth (dev only).
+    coordinator_token: str | None = None
+    # Base URL a distributed worker reaches the coordinator /jobs router at. Default suits a
+    # worker co-located with the coordinator; remote workers set KANOMORI_COORDINATOR_URL.
+    coordinator_url: str = "http://localhost:8000"
+    # Max accepted size of the worker->coordinator stage result JSON upload, in bytes.
+    stage_result_max_bytes: int = 64 * 1024 * 1024
+
     # Model ids. Embedding dims are pinned as constants in code (see embed/ and migrations),
     # not derived from these strings, to keep the SQL schema authoritative.
     text_model: str = "BAAI/bge-m3"
@@ -42,6 +64,10 @@ class Settings(BaseSettings):
     ingest_ocr_backend: str = "onnxruntime"
     query_ocr_model: str = "ppocrv5_server"
     query_ocr_backend: str = "onnxruntime"
+    stage_parse_transcript_device: StageDevice = "cpu"
+    stage_ocr_device: StageDevice = "cpu"
+    stage_classify_device: StageDevice = "cpu"
+    stage_image_embed_device: StageDevice = "cpu"
     # Deprecated migration input for the old flat engine names.
     ocr_engine: str | None = None
 

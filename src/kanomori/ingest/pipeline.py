@@ -11,9 +11,11 @@ re-runs); ``run_full`` is the normal entry point that respects stage status.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from kanomori.ingest.stage_device import device_for_stage
 from kanomori.ingest.stages import (
     classify,
     frames,
@@ -38,12 +40,18 @@ class IngestContext:
     separate: bool = False
     language: str = "japanese"
 
+    # Identity of the pre-existing jobs row for this run, when the worker enqueued it before
+    # register computed content_hash. None for single-machine callers that have no prior row;
+    # register then falls back to upserting the jobs row by content_hash (see register.run).
+    job_id: int | None = None
+
     # Populated by stages as they run.
     content_hash: str | None = None
     video_id: int | None = None
     audio_path: str | None = None
     srt_path: str | None = None
     embedder: object = field(default=None, repr=False)
+    stage_log: Callable[[str, str, str], None] | None = field(default=None, repr=False)
 
 
 # Stage name -> module exposing run(conn, ctx). Order matters (resumable DAG).
@@ -63,7 +71,7 @@ def make_embedder():
     """Construct the text embedder. Patched in tests to inject a deterministic fake."""
     from kanomori.embed.text_embedder import BGEEmbedder
 
-    return BGEEmbedder()
+    return BGEEmbedder(device=device_for_stage("parse_transcript"))
 
 
 def run_stage(conn, name: str, ctx: IngestContext):

@@ -57,7 +57,7 @@ def test_scope_specific_ocr_config_overrides_deprecated_engine() -> None:
     )
 
 
-def test_scope_specific_ocr_config_accepts_cuda_backend() -> None:
+def test_scope_specific_ocr_config_keeps_query_cuda_but_ingest_defaults_cpu() -> None:
     from kanomori.config import Settings
 
     settings = Settings(
@@ -68,12 +68,40 @@ def test_scope_specific_ocr_config_accepts_cuda_backend() -> None:
 
     assert ocr.resolve_ocr_config(scope="ingest", settings=settings) == ocr.OcrConfig(
         model=ocr.PPOCRV5_SERVER,
-        backend=ocr.OCR_BACKEND_CUDA,
+        backend=ocr.OCR_BACKEND_ONNXRUNTIME,
     )
     assert ocr.resolve_ocr_config(scope="query", settings=settings) == ocr.OcrConfig(
         model=ocr.PPOCRV5_SERVER,
         backend=ocr.OCR_BACKEND_CUDA,
     )
+
+
+def test_ingest_cpu_stage_forces_onnxruntime_backend() -> None:
+    from kanomori.config import Settings
+
+    settings = Settings(
+        ingest_ocr_backend=ocr.OCR_BACKEND_CUDA,
+        stage_ocr_device="cpu",
+        _env_file=None,
+    )
+
+    assert ocr.resolve_ocr_config(scope="ingest", settings=settings) == ocr.OcrConfig(
+        model=ocr.PPOCRV5_SERVER,
+        backend=ocr.OCR_BACKEND_ONNXRUNTIME,
+    )
+
+
+def test_ingest_gpu_stage_requires_gpu_backend() -> None:
+    from kanomori.config import Settings
+
+    settings = Settings(
+        ingest_ocr_backend=ocr.OCR_BACKEND_ONNXRUNTIME,
+        stage_ocr_device="gpu",
+        _env_file=None,
+    )
+
+    with pytest.raises(ValueError, match="GPU OCR backend"):
+        ocr.resolve_ocr_config(scope="ingest", settings=settings)
 
 
 def test_legacy_rapidocr_reader_normalizes_tuple_results(monkeypatch, tmp_path) -> None:
@@ -160,6 +188,59 @@ def test_get_ocr_reader_uses_settings_scope_config(monkeypatch) -> None:
 
     assert isinstance(reader, FakeReader)
     assert created == [ocr.OcrConfig(ocr.PPOCRV5_MOBILE, ocr.OCR_BACKEND_ONNXRUNTIME)]
+
+
+def test_get_ocr_reader_ingest_gpu_does_not_fallback(monkeypatch) -> None:
+    from kanomori.config import get_settings
+
+    created: list[ocr.OcrConfig] = []
+
+    def make_reader(config: ocr.OcrConfig):
+        created.append(config)
+        raise ocr.OcrBackendUnavailable(f"{config.backend} unavailable")
+
+    monkeypatch.setattr(ocr, "_READERS", {})
+    monkeypatch.setattr(ocr, "_make_reader", make_reader)
+    monkeypatch.setenv("KANOMORI_STAGE_OCR_DEVICE", "gpu")
+    monkeypatch.setenv("KANOMORI_INGEST_OCR_BACKEND", ocr.OCR_BACKEND_CUDA)
+    get_settings.cache_clear()
+
+    try:
+        with pytest.raises(ocr.OcrBackendUnavailable, match="cuda unavailable"):
+            ocr.get_ocr_reader(scope="ingest")
+    finally:
+        get_settings.cache_clear()
+
+    assert created == [ocr.OcrConfig(ocr.PPOCRV5_SERVER, ocr.OCR_BACKEND_CUDA)]
+
+
+def test_get_ocr_reader_query_scope_keeps_fallback(monkeypatch) -> None:
+    from kanomori.config import get_settings
+
+    class FakeReader:
+        def read_image(self, path):
+            return []
+
+    created: list[ocr.OcrConfig] = []
+
+    def make_reader(config: ocr.OcrConfig):
+        if config.backend == ocr.OCR_BACKEND_CUDA:
+            raise ocr.OcrBackendUnavailable("CUDA unavailable")
+        created.append(config)
+        return FakeReader()
+
+    monkeypatch.setattr(ocr, "_READERS", {})
+    monkeypatch.setattr(ocr, "_make_reader", make_reader)
+    monkeypatch.setenv("KANOMORI_QUERY_OCR_BACKEND", ocr.OCR_BACKEND_CUDA)
+    get_settings.cache_clear()
+
+    try:
+        reader = ocr.get_ocr_reader(scope="query")
+    finally:
+        get_settings.cache_clear()
+
+    assert isinstance(reader, FakeReader)
+    assert created == [ocr.OcrConfig(ocr.PPOCRV5_SERVER, ocr.OCR_BACKEND_ONNXRUNTIME)]
 
 
 def test_get_ocr_reader_falls_back_from_tensorrt_to_onnxruntime(monkeypatch) -> None:

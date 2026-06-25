@@ -67,9 +67,30 @@ class IngestRequest(BaseModel):
 
 
 class IngestResponse(BaseModel):
+    # content_hash is sha256 of the media, computed by the register stage when the worker runs
+    # — not known at enqueue time. /ingest therefore returns None here; clients poll
+    # GET /ingest/{job_id} for the resolved hash once registration completes.
     job_id: int
-    content_hash: str
+    content_hash: str | None = None
     status: str
+
+
+class BatchIngestRequest(BaseModel):
+    """Body for ``POST /ingest/batch``. ``manifest_path`` is resolved by the configured
+    MediaSource (a source-store-relative key), not a host path; it defaults to the conventional
+    ``manifest.jsonl`` at the store root."""
+
+    manifest_path: str = "manifest.jsonl"
+
+
+class BatchIngestResponse(BaseModel):
+    """Result of enqueuing a manifest. ``enqueued`` are the new job ids (one per fresh manifest
+    line); ``skipped`` are the source-store ``path`` strings that already had a queued/running job
+    (so re-running a batch is idempotent); ``total`` is the manifest line count."""
+
+    enqueued: list[int] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+    total: int
 
 
 class JobStatusResponse(BaseModel):

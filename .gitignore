@@ -22,9 +22,11 @@ media/
 *.log
 
 # Source clips you ingest manually (inputs). Large + copyright-sensitive — never committed.
-# The folder's README is tracked (see !samples/README.md) so the layout is documented.
-samples/
+# The folder's README + batch manifest are tracked so the layout is documented.
+# Ignore the *contents* (samples/*) not the dir itself, so the negations below apply.
+samples/*
 !samples/README.md
+!samples/manifest.jsonl
 
 # OS
 .DS_Store

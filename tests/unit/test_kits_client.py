@@ -159,6 +159,28 @@ def test_transcribe_writes_log_artifact_on_success(tmp_path: Path) -> None:
     assert "a warning" in content
 
 
+def test_transcribe_relays_live_output_via_callback(tmp_path: Path) -> None:
+    out = tmp_path / "out.srt"
+    seen: list[tuple[str, str]] = []
+
+    def fake_runner(argv, **kwargs):
+        callback = kwargs["log_output"]
+        callback("stdout", "loaded model")
+        callback("stderr", "warming up gpu")
+        out.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+        return FakeCompleted(returncode=0, stdout="loaded model\n", stderr="warming up gpu\n")
+
+    transcribe(
+        tmp_path / "in.mp3",
+        out,
+        kits_dir=Path("/k"),
+        runner=fake_runner,
+        log_output=lambda stream, line: seen.append((stream, line)),
+    )
+
+    assert seen == [("stdout", "loaded model"), ("stderr", "warming up gpu")]
+
+
 def test_transcribe_writes_full_untruncated_stderr_to_log_on_failure(tmp_path: Path) -> None:
     # The exception message is bounded, but the LOG must hold the complete stderr — this is
     # exactly the evidence that was lost when the real end-to-end transcribe failed.
