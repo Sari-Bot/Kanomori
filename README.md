@@ -117,6 +117,32 @@ if the driver library is not discoverable, also expose the WSL driver path befor
 export LD_LIBRARY_PATH="/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
+On WSL GPU workers, keep the CUDA wheel and library path setup consistent:
+
+```bash
+uv sync --group ingest --group ocr-cuda
+```
+
+If the worker still reports only `['AzureExecutionProvider', 'CPUExecutionProvider']`, the venv
+likely has both the CPU `onnxruntime` wheel and `onnxruntime-gpu` installed at once. A clean WSL
+repair is:
+
+```bash
+cd /path/to/Kanomori
+uv pip uninstall onnxruntime
+uv pip install --reinstall onnxruntime-gpu==1.27.0
+```
+
+Then ensure every worker launch shell exports both the WSL driver path and the NVIDIA wheel
+libraries before `uv run`, for example:
+
+```bash
+KANOMORI_ROOT=/path/to/Kanomori
+KANOMORI_NVIDIA_SITE="$KANOMORI_ROOT/.venv/lib/python3.12/site-packages/nvidia"
+KANOMORI_NVIDIA_LIBS="$(find "$KANOMORI_NVIDIA_SITE" -mindepth 2 -maxdepth 3 -type f \( -name "libcudart.so*" -o -name "libcudnn.so*" -o -name "libcublas.so*" \) -printf "%h\n" | sort -u | paste -sd: -)"
+export LD_LIBRARY_PATH="$KANOMORI_NVIDIA_LIBS:/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
 Verify provider discovery:
 
 ```bash

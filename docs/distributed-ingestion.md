@@ -121,6 +121,50 @@ Relevant notes:
 - `KANOMORI_STAGE_OCR_DEVICE=gpu` requires `KANOMORI_INGEST_OCR_BACKEND=cuda` or `tensorrt`. Setting `KANOMORI_INGEST_OCR_BACKEND=onnxruntime` with GPU OCR is rejected.
 - Query-time OCR and query-time embedding are not affected by these worker settings.
 
+### WSL GPU OCR Notes
+
+For WSL GPU workers, `KANOMORI_STAGE_OCR_DEVICE=gpu` needs more than just a visible NVIDIA GPU.
+The worker process must import the GPU `onnxruntime` wheel and see both the WSL driver libraries
+and the NVIDIA runtime libraries shipped in the venv.
+
+Recommended setup:
+
+```bash
+uv sync --group ingest --group ocr-cuda
+```
+
+If `uv run python -c 'import onnxruntime as ort; print(ort.get_available_providers())'`
+still shows only `['AzureExecutionProvider', 'CPUExecutionProvider']`, repair the venv by
+removing the CPU `onnxruntime` wheel and reinstalling the GPU wheel cleanly:
+
+```bash
+cd /path/to/Kanomori
+uv pip uninstall onnxruntime
+uv pip install --reinstall onnxruntime-gpu==1.27.0
+```
+
+Before launching the worker on WSL, export the CUDA library paths in the same shell:
+
+```bash
+KANOMORI_ROOT=/path/to/Kanomori
+KANOMORI_NVIDIA_SITE="$KANOMORI_ROOT/.venv/lib/python3.12/site-packages/nvidia"
+KANOMORI_NVIDIA_LIBS="$(find "$KANOMORI_NVIDIA_SITE" -mindepth 2 -maxdepth 3 -type f \( -name "libcudart.so*" -o -name "libcudnn.so*" -o -name "libcublas.so*" \) -printf "%h\n" | sort -u | paste -sd: -)"
+export LD_LIBRARY_PATH="$KANOMORI_NVIDIA_LIBS:/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
+After that, this probe should show `CUDAExecutionProvider`:
+
+```bash
+uv run python - <<'PY'
+from kanomori.ocr_tensorrt import ensure_cuda_ep_available
+from kanomori.ocr import OcrBackendUnavailable
+import onnxruntime as ort
+
+ensure_cuda_ep_available(OcrBackendUnavailable)
+print(ort.get_available_providers())
+PY
+```
+
 ## Source Store Layout
 
 The distributed system expects the same layout described in [samples/README.md](/Users/lb/Documents/Code/kanomori/samples/README.md).
