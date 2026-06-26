@@ -51,6 +51,28 @@ class SearchHit(BaseModel):
     why: dict[str, float] = Field(default_factory=dict)  # modality name -> contribution
 
 
+class WindowEvidence(BaseModel):
+    """One query-window contribution explaining an audio-search hit."""
+
+    window_text: str
+    window_kind: str
+    matched_segment_id: int
+    matched_text: str
+    matched_ts_sec: float
+    rrf_score: float
+
+
+class AudioSearchHit(BaseModel):
+    """Coverage-ranked moment returned by an uploaded audio snippet search."""
+
+    video_id: int
+    ts_sec: float
+    coverage: int
+    quality: float
+    scene_type: str | None = None
+    evidence: list[WindowEvidence] = Field(default_factory=list)
+
+
 # --- API request/response DTOs ---------------------------------------------------------
 
 
@@ -109,3 +131,8 @@ class JobStatusResponse(BaseModel):
 
 class SearchResponse(BaseModel):
     hits: list[SearchHit]
+
+
+class AudioSearchResponse(BaseModel):
+    transcript: str
+    hits: list[AudioSearchHit]

@@ -52,6 +52,7 @@ def test_index_page_renders_search_form(client) -> None:
     # Has a transcript query input and a screenshot upload control.
     assert 'name="query"' in body
     assert 'type="file"' in body
+    assert "/ui/search/audio" in body
 
 
 def test_search_fragment_returns_result_cards(client, seeded) -> None:
@@ -62,6 +63,33 @@ def test_search_fragment_returns_result_cards(client, seeded) -> None:
     body = resp.text
     assert "今日はゲーム配信" in body              # the matched transcript snippet
     assert f"/result/{seeded}" in body or "/ui/result" in body  # a link to detail
+
+
+def test_audio_search_fragment_renders_transcript_and_evidence(
+    client, seeded, monkeypatch
+) -> None:
+    from kanomori.api import app as app_module
+
+    def fake_normalize(_src, dst):
+        dst.write_bytes(b"wav")
+
+    class FakeASR:
+        def transcribe(self, _path):
+            return [{"start": 0.0, "end": 2.0, "text": "今日はゲーム配信"}]
+
+    monkeypatch.setattr(app_module, "normalize_clip_to_wav", fake_normalize)
+    monkeypatch.setattr(app_module, "probe_duration_sec", lambda _path: 5.0)
+    monkeypatch.setattr(app_module, "get_asr", lambda: FakeASR())
+
+    resp = client.post(
+        "/ui/search/audio",
+        files={"file": ("clip.wav", b"audio bytes", "audio/wav")},
+        data={"k": "5"},
+    )
+
+    assert resp.status_code == 200
+    assert "今日はゲーム配信" in resp.text
+    assert "coverage" in resp.text
 
 
 def test_search_fragment_empty_query_renders_no_results_message(client, seeded) -> None:

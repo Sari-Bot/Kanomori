@@ -42,6 +42,60 @@ def test_load_eval_suite_parses_fixture(tmp_path) -> None:
     assert suite.transcript_segments[0].text == "hello"
     assert suite.transcript_queries[0].expected_ts_sec == 1.0
     assert suite.screenshot_queries[0].frame_index == 0
+    assert suite.audio_snippet_queries == []
+
+
+def test_load_eval_suite_parses_audio_snippet_queries(tmp_path) -> None:
+    from kanomori.evaluation import load_eval_suite
+
+    fixture = tmp_path / "suite.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "sample": "samples/example.mp4",
+                "transcript_segments": [],
+                "transcript_queries": [],
+                "screenshot_queries": [],
+                "audio_snippet_queries": [
+                    {
+                        "name": "standalone clip",
+                        "clip": "clips/hello.wav",
+                        "expected_ts_sec": 10.0,
+                        "tolerance_sec": 3.0,
+                    },
+                    {
+                        "name": "source slice",
+                        "source_clip": "samples/example.mp4",
+                        "start_sec": 5.0,
+                        "end_sec": 12.0,
+                        "expected_ts_sec": 5.0,
+                        "tolerance_sec": 2.0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    suite = load_eval_suite(fixture)
+
+    assert suite.audio_snippet_queries[0].clip == "clips/hello.wav"
+    assert suite.audio_snippet_queries[1].source_clip == "samples/example.mp4"
+
+
+def test_evaluate_hit_accepts_audio_search_hits() -> None:
+    from kanomori.evaluation import evaluate_hit
+    from kanomori.models import AudioSearchHit
+
+    result = evaluate_hit(
+        "audio",
+        [AudioSearchHit(video_id=1, ts_sec=12.0, coverage=2, quality=0.2)],
+        expected_ts_sec=11.5,
+        tolerance_sec=1.0,
+        top_k=1,
+    )
+
+    assert result.passed is True
 
 
 def test_evaluate_hit_marks_pass_when_any_topk_hit_is_in_tolerance() -> None:

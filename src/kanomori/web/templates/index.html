@@ -14,5 +14,13 @@
   <button type="submit">Search screenshot</button>
 </form>
 
+<form action="/ui/search/audio" method="post" enctype="multipart/form-data"
+      hx-post="/ui/search/audio" hx-target="#results" hx-swap="innerHTML"
+      hx-encoding="multipart/form-data">
+  <input type="file" name="file" accept="audio/*,video/*">
+  <input type="hidden" name="k" value="10">
+  <button type="submit">Search audio</button>
+</form>
+
 <div id="results"></div>
 {% endblock %}

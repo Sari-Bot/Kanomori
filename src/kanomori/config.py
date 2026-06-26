@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     text_model: str = "BAAI/bge-m3"
     image_model: str = "facebook/dinov2-base"
     scene_model: str = "google/siglip-base-patch16-224"
+    # Required for /search/audio, but intentionally has no baked model default: operators must
+    # set it to the kotoba-whisper version that produced the indexed corpus.
+    audio_asr_model: str | None = None
+    audio_clip_max_sec: float = 35.0
 
     # OCR config is split by workload because offline ingestion can favor accuracy while
     # screenshot query may need a lower-latency profile.

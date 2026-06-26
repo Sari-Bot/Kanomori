@@ -1,15 +1,39 @@
 {# HTML fragment: result cards, swapped into #results by htmx. #}
+{% if transcript is defined and transcript %}
+  <div class="card">
+    <div class="meta">Transcript</div>
+    <div>{{ transcript }}</div>
+  </div>
+{% endif %}
 {% if hits %}
   {% for hit in hits %}
   <div class="card">
     <div>
       <span class="ts">{{ '%.1f'|format(hit.ts_sec) }}s</span>
       {% if hit.scene_type %}<span class="badge">{{ hit.scene_type }}</span>{% endif %}
-      {% for modality in hit.why.keys() %}<span class="badge">{{ modality }}</span>{% endfor %}
+      {% if hit.coverage is defined %}
+        <span class="badge">coverage {{ hit.coverage }}</span>
+      {% else %}
+        {% for modality in hit.why.keys() %}<span class="badge">{{ modality }}</span>{% endfor %}
+      {% endif %}
       <a href="/ui/result/{{ hit.video_id }}?ts={{ hit.ts_sec }}">open moment →</a>
     </div>
-    {% if hit.snippet %}<div>{{ hit.snippet }}</div>{% endif %}
-    <div class="meta">video #{{ hit.video_id }} · score {{ '%.4f'|format(hit.score) }}</div>
+    {% if hit.coverage is defined %}
+      {% if hit.evidence %}
+      <ul>
+        {% for evidence in hit.evidence %}
+        <li>
+          {{ evidence.window_text }} → {{ evidence.matched_text }}
+          @ {{ '%.1f'|format(evidence.matched_ts_sec) }}s
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="meta">video #{{ hit.video_id }} · quality {{ '%.4f'|format(hit.quality) }}</div>
+    {% else %}
+      {% if hit.snippet %}<div>{{ hit.snippet }}</div>{% endif %}
+      <div class="meta">video #{{ hit.video_id }} · score {{ '%.4f'|format(hit.score) }}</div>
+    {% endif %}
   </div>
   {% endfor %}
 {% else %}

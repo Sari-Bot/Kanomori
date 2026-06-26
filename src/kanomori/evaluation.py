@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
-from kanomori.models import SearchHit
+
+class _TimestampedHit(Protocol):
+    ts_sec: float
 
 
 class TranscriptSegmentCase(BaseModel):
@@ -30,12 +33,35 @@ class ScreenshotQueryCase(BaseModel):
     tolerance_sec: float
 
 
+class AudioSnippetQueryCase(BaseModel):
+    name: str
+    clip: str | None = None
+    source_clip: str | None = None
+    start_sec: float | None = None
+    end_sec: float | None = None
+    expected_ts_sec: float
+    tolerance_sec: float
+
+    @model_validator(mode="after")
+    def _validate_source(self):
+        has_clip = self.clip is not None
+        has_slice = (
+            self.source_clip is not None
+            and self.start_sec is not None
+            and self.end_sec is not None
+        )
+        if has_clip == has_slice:
+            raise ValueError("set either clip or source_clip/start_sec/end_sec")
+        return self
+
+
 class EvalSuite(BaseModel):
     sample: str
     top_k: int = 5
     transcript_segments: list[TranscriptSegmentCase]
     transcript_queries: list[TranscriptQueryCase]
     screenshot_queries: list[ScreenshotQueryCase]
+    audio_snippet_queries: list[AudioSnippetQueryCase] = Field(default_factory=list)
 
 
 class EvalHitResult(BaseModel):
@@ -66,7 +92,7 @@ def load_eval_suite(path: Path) -> EvalSuite:
 
 def evaluate_hit(
     name: str,
-    hits: Sequence[SearchHit],
+    hits: Sequence[_TimestampedHit],
     *,
     expected_ts_sec: float,
     tolerance_sec: float,

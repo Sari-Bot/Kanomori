@@ -17,6 +17,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
@@ -28,8 +29,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from kanomori.config import get_settings
 from kanomori.db import close_pool, connection
+from kanomori.embed.asr import (
+    AudioDecodeError,
+    KotobaWhisperASR,
+    normalize_clip_to_wav,
+    probe_duration_sec,
+)
 from kanomori.media_source import MediaSourceError, get_media_source, iter_manifest
 from kanomori.models import (
+    AudioSearchResponse,
     BatchIngestRequest,
     BatchIngestResponse,
     IngestRequest,
@@ -37,7 +45,7 @@ from kanomori.models import (
     JobStatusResponse,
     SearchResponse,
 )
-from kanomori.retrieval import merge, screenshot, transcript
+from kanomori.retrieval import audio, merge, screenshot, transcript
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "web" / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -45,8 +53,11 @@ templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 _embedder = None
 _image_embedder = None
 _ocr_reader = None
+_asr = None
 SCREENSHOT_FILE = File(...)
 SCREENSHOT_K = Form(10)
+AUDIO_FILE = File(...)
+AUDIO_K = Form(10)
 MAX_LOGGED_BODY_BYTES = 4096
 logger = logging.getLogger(__name__)
 
@@ -81,6 +92,14 @@ def get_ocr_reader():
     if _ocr_reader is None:
         _ocr_reader = screenshot.UploadOcrReader()
     return _ocr_reader
+
+
+def get_asr():
+    """Return the process-wide ASR wrapper, constructing it only for audio search."""
+    global _asr
+    if _asr is None:
+        _asr = KotobaWhisperASR()
+    return _asr
 
 
 @asynccontextmanager
@@ -166,6 +185,10 @@ def create_app() -> FastAPI:
             )
             hits = merge.merge_from_db(conn, cands, k=k)
         return SearchResponse(hits=hits)
+
+    @app.post("/search/audio", response_model=AudioSearchResponse)
+    async def search_audio(file: UploadFile = AUDIO_FILE, k: int = AUDIO_K) -> AudioSearchResponse:
+        return await _search_audio_upload(file, k)
 
     @app.post("/ingest", response_model=IngestResponse)
     def ingest(req: IngestRequest) -> IngestResponse:
@@ -280,6 +303,40 @@ def _hit_snippet(conn, video_id: int, ts_sec: float) -> str | None:
     return row[0] if row else None
 
 
+async def _search_audio_upload(file: UploadFile, k: int) -> AudioSearchResponse:
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty audio upload")
+
+    settings = get_settings()
+    with TemporaryDirectory() as tmp:
+        raw = _write_temp_upload(Path(tmp), file.filename, data)
+        wav = Path(tmp) / "query.wav"
+        try:
+            normalize_clip_to_wav(raw, wav)
+            duration = probe_duration_sec(wav)
+        except AudioDecodeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if duration > settings.audio_clip_max_sec:
+            detail = f"audio clip too long: {duration:.1f}s > {settings.audio_clip_max_sec:.1f}s"
+            raise HTTPException(status_code=400, detail=detail)
+        with connection() as conn:
+            transcript_text, hits = audio.audio_candidates(
+                conn, wav, get_asr(), get_embedder(), k=k
+            )
+
+    if not transcript_text.strip():
+        raise HTTPException(status_code=422, detail="empty transcription")
+    return AudioSearchResponse(transcript=transcript_text, hits=hits)
+
+
+def _write_temp_upload(tmp: Path, filename: str | None, data: bytes) -> Path:
+    suffix = Path(filename or "upload").suffix or ".bin"
+    raw = tmp / f"upload{suffix}"
+    raw.write_bytes(data)
+    return raw
+
+
 def _register_ui(app: FastAPI) -> None:
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
@@ -314,6 +371,16 @@ def _register_ui(app: FastAPI) -> None:
                 d["snippet"] = _hit_snippet(conn, h.video_id, h.ts_sec)
                 hits_view.append(d)
         return templates.TemplateResponse(request, "_results.html", {"hits": hits_view})
+
+    @app.post("/ui/search/audio", response_class=HTMLResponse)
+    async def ui_search_audio(request: Request, file: UploadFile = AUDIO_FILE, k: int = AUDIO_K):
+        response = await _search_audio_upload(file, k)
+        hits_view = [hit.model_dump() for hit in response.hits]
+        return templates.TemplateResponse(
+            request,
+            "_results.html",
+            {"hits": hits_view, "transcript": response.transcript},
+        )
 
     @app.get("/ui/result/{video_id}", response_class=HTMLResponse)
     def ui_result(request: Request, video_id: int, ts: float = 0.0):

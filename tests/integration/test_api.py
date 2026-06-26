@@ -191,6 +191,74 @@ def test_search_screenshot_returns_visual_timestamp(client, db_conn, monkeypatch
     assert hits[0]["ts_sec"] == pytest.approx(31.0)
 
 
+class FakeASR:
+    def __init__(self, segments):
+        self.segments = segments
+
+    def transcribe(self, _path):
+        return self.segments
+
+
+def _patch_audio_io(monkeypatch, *, duration: float = 5.0) -> None:
+    from kanomori.api import app as app_module
+
+    def fake_normalize(_src, dst):
+        dst.write_bytes(b"wav")
+
+    monkeypatch.setattr(app_module, "normalize_clip_to_wav", fake_normalize)
+    monkeypatch.setattr(app_module, "probe_duration_sec", lambda _path: duration)
+
+
+def test_search_audio_returns_transcript_and_evidence(client, seeded, monkeypatch) -> None:
+    from kanomori.api import app as app_module
+
+    _patch_audio_io(monkeypatch)
+    monkeypatch.setattr(
+        app_module,
+        "get_asr",
+        lambda: FakeASR([{"start": 0.0, "end": 3.0, "text": "今日はマインクラフト"}]),
+    )
+
+    resp = client.post(
+        "/search/audio",
+        files={"file": ("clip.wav", b"audio bytes", "audio/wav")},
+        data={"k": "5"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["transcript"] == "今日はマインクラフト"
+    assert body["hits"]
+    assert body["hits"][0]["video_id"] == seeded
+    assert body["hits"][0]["coverage"] >= 1
+    assert body["hits"][0]["evidence"]
+
+
+def test_search_audio_rejects_empty_upload(client) -> None:
+    resp = client.post(
+        "/search/audio",
+        files={"file": ("clip.wav", b"", "audio/wav")},
+        data={"k": "5"},
+    )
+
+    assert resp.status_code == 400
+
+
+def test_search_audio_rejects_empty_transcription(client, monkeypatch) -> None:
+    from kanomori.api import app as app_module
+
+    _patch_audio_io(monkeypatch)
+    monkeypatch.setattr(app_module, "get_asr", lambda: FakeASR([]))
+
+    resp = client.post(
+        "/search/audio",
+        files={"file": ("silence.wav", b"audio bytes", "audio/wav")},
+        data={"k": "5"},
+    )
+
+    assert resp.status_code == 422
+
+
 def test_result_endpoint_returns_moment_detail(client, seeded) -> None:
     # seeded has transcript segments at 0/5/10s for video `seeded`.
     resp = client.get(f"/result/{seeded}", params={"ts": 5.0})
