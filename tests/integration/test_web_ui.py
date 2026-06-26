@@ -53,6 +53,9 @@ def test_index_page_renders_search_form(client) -> None:
     assert 'name="query"' in body
     assert 'type="file"' in body
     assert "/ui/search/audio" in body
+    assert 'id="audio-record-start"' in body
+    assert 'id="audio-record-stop"' in body
+    assert 'id="audio-record-status"' in body
 
 
 def test_search_fragment_returns_result_cards(client, seeded) -> None:

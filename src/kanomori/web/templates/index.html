@@ -14,13 +14,143 @@
   <button type="submit">Search screenshot</button>
 </form>
 
-<form action="/ui/search/audio" method="post" enctype="multipart/form-data"
+<form id="audio-search-form" action="/ui/search/audio" method="post" enctype="multipart/form-data"
       hx-post="/ui/search/audio" hx-target="#results" hx-swap="innerHTML"
       hx-encoding="multipart/form-data">
   <input type="file" name="file" accept="audio/*,video/*">
   <input type="hidden" name="k" value="10">
   <button type="submit">Search audio</button>
+  <button type="button" id="audio-record-start">Record shared audio</button>
+  <button type="button" id="audio-record-stop" hidden disabled>Stop recording</button>
+  <span id="audio-record-status" class="recording-status" role="status" aria-live="polite"></span>
 </form>
 
 <div id="results"></div>
+<script>
+(() => {
+  const form = document.querySelector("#audio-search-form");
+  const startButton = document.querySelector("#audio-record-start");
+  const stopButton = document.querySelector("#audio-record-stop");
+  const status = document.querySelector("#audio-record-status");
+  const results = document.querySelector("#results");
+  if (!form || !startButton || !stopButton || !status) return;
+
+  let recorder = null;
+  let stream = null;
+  let chunks = [];
+
+  const setStatus = (message, state = "") => {
+    status.textContent = message;
+    status.dataset.state = state;
+  };
+
+  const stopStream = () => {
+    if (!stream) return;
+    stream.getTracks().forEach((track) => track.stop());
+    stream = null;
+  };
+
+  const resetButtons = () => {
+    startButton.disabled = false;
+    stopButton.disabled = true;
+    stopButton.hidden = true;
+  };
+
+  const preferredMimeType = () => {
+    if (!window.MediaRecorder) return "";
+    const types = ["video/webm;codecs=opus", "video/webm", "audio/webm;codecs=opus"];
+    return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+  };
+
+  const parseError = (text) => {
+    try {
+      return JSON.parse(text).detail || text;
+    } catch {
+      return text || "search failed";
+    }
+  };
+
+  const submitRecording = async () => {
+    const type = recorder?.mimeType || "video/webm";
+    const blob = new Blob(chunks, { type });
+    recorder = null;
+    chunks = [];
+    stopStream();
+    if (!blob.size) {
+      resetButtons();
+      setStatus("Recording was empty.", "error");
+      return;
+    }
+
+    const data = new FormData();
+    data.append("file", blob, "system-audio.webm");
+    data.append("k", form.querySelector('input[name="k"]')?.value || "10");
+    setStatus("Searching recorded audio...");
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: data,
+        headers: { "HX-Request": "true" },
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        setStatus(`Could not search recording: ${parseError(body)}`, "error");
+        return;
+      }
+      if (results) results.innerHTML = body;
+      setStatus("Search complete.");
+    } catch (error) {
+      setStatus(`Could not search recording: ${error.message}`, "error");
+    } finally {
+      resetButtons();
+    }
+  };
+
+  const stopRecording = () => {
+    if (!recorder || recorder.state !== "recording") return;
+    stopButton.disabled = true;
+    setStatus("Preparing recording...");
+    recorder.stop();
+  };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
+      setStatus("Recording is not supported in this browser; upload a file instead.", "error");
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+        systemAudio: "include",
+      });
+      if (!stream.getAudioTracks().length) {
+        stopStream();
+        setStatus("No shared audio track was provided; upload a file instead.", "error");
+        return;
+      }
+      chunks = [];
+      const mimeType = preferredMimeType();
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data?.size) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", submitRecording, { once: true });
+      stream.getTracks().forEach((track) => track.addEventListener("ended", stopRecording));
+      startButton.disabled = true;
+      stopButton.hidden = false;
+      stopButton.disabled = false;
+      setStatus("Recording shared audio...");
+      recorder.start();
+    } catch (error) {
+      stopStream();
+      resetButtons();
+      setStatus(`Could not start recording: ${error.message}`, "error");
+    }
+  };
+
+  startButton.addEventListener("click", startRecording);
+  stopButton.addEventListener("click", stopRecording);
+})();
+</script>
 {% endblock %}

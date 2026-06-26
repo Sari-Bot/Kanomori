@@ -13,6 +13,9 @@
     form { margin: 1rem 0; display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
     input[type=text] { flex: 1; min-width: 12rem; padding: .5rem; font-size: 1rem; }
     button { padding: .5rem 1rem; font-size: 1rem; cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .recording-status { min-height: 1.5rem; font-size: .9rem; opacity: .78; }
+    .recording-status[data-state="error"] { color: #b00020; opacity: 1; }
     .card { border: 1px solid #8884; border-radius: 8px; padding: .75rem 1rem; margin: .75rem 0; }
     .card .meta { font-size: .85rem; opacity: .75; }
     .badge { display: inline-block; font-size: .75rem; padding: .1rem .5rem; margin-right: .3rem;
