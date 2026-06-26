@@ -115,6 +115,10 @@ Example manifest line:
 
 `path` is the worker's canonical source key.
 
+To prepare a WebDAV source store from loose root-level videos, use `kanomori-organize-source`.
+See [Sample Corpus Layout](../samples/README.md#organizing-a-webdav-source-store) for the dry-run,
+apply, and skip behavior.
+
 ## Bring-up sequence
 
 Start the coordinator side:

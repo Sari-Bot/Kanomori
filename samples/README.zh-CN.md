@@ -39,3 +39,36 @@ samples/
 - 目录名主要给人看，真正的键是 `path`
 - 本地 source store 与 WebDAV source store 共用同一套布局
 - 可重建的派生产物不应提交到这里
+
+## 整理 WebDAV Source Store
+
+如果原始归档视频已经作为散文件放在 WebDAV source-store 根目录，可以用整理 CLI 将它们移动到
+所需目录结构，并更新 `manifest.jsonl`。
+
+先干跑确认计划：
+
+```bash
+KANOMORI_MEDIA_SOURCE_URL=https://dav.example.com/store \
+KANOMORI_MEDIA_SOURCE_USER=... \
+KANOMORI_MEDIA_SOURCE_PASSWORD=... \
+DEEPSEEK_API_KEY=... \
+uv run kanomori-organize-source --dry-run
+```
+
+确认后再执行 WebDAV 写入：
+
+```bash
+KANOMORI_MEDIA_SOURCE_URL=https://dav.example.com/store \
+KANOMORI_MEDIA_SOURCE_USER=... \
+KANOMORI_MEDIA_SOURCE_PASSWORD=... \
+DEEPSEEK_API_KEY=... \
+uv run kanomori-organize-source --apply
+```
+
+整理器会调用 DeepSeek JSON 输出，从不规则文件名推断 `title`、`streamed_at`、
+`source_platform`、`source_url`、`stream_type` 和 `separate`。缺失的可选字段会从 manifest
+记录中省略，包括 `source_url`。已有的整理目录、不支持的文件、manifest 重复项和目标路径冲突
+都会跳过。
+
+只有 `--apply` 会写入 WebDAV。替换 `manifest.jsonl` 前，脚本会先写入带时间戳的
+`manifest.jsonl.bak.*` 备份和临时 `manifest.jsonl.tmp`。

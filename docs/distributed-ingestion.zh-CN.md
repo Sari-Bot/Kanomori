@@ -114,6 +114,10 @@ Manifest 示例：
 
 其中 `path` 是 worker 识别源文件的规范键。
 
+如果需要把 WebDAV 根目录下的散视频整理成 source store 结构，可以使用
+`kanomori-organize-source`。干跑、执行和跳过规则见
+[样本语料目录结构](../samples/README.zh-CN.md#整理-webdav-source-store)。
+
 ## 启动顺序
 
 先启动 coordinator 侧：
