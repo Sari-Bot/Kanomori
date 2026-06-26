@@ -26,6 +26,7 @@ dependencies = [
 kanomori-migrate = "kanomori.migrate:main"
 kanomori-worker = "kanomori.ingest.worker:main"
 kanomori-ocr-benchmark = "kanomori.ocr_benchmark:main"
+kanomori-organize-source = "kanomori.source_organizer:main"
 
 [build-system]
 requires = ["hatchling"]
