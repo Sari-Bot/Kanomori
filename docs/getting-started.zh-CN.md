@@ -28,7 +28,7 @@ uv sync --group worker-cuda
 
 - `uv sync` 足够支撑核心 API 开发与大部分纯逻辑测试
 - `ingest` 增加抽帧、OCR 与日文分词依赖
-- `embed` 增加文本与图像模型依赖
+- `embed` 增加文本、图像与音频查询模型依赖
 - `worker-cpu` 是完整 CPU worker 安装目标
 - `worker-cuda` 是完整 CUDA worker 安装目标
 
@@ -44,6 +44,8 @@ cp .env.example .env
 - `KANOMORI_KITS_DIR`：同级 KITS 仓库路径
 - `KANOMORI_MEDIA_ROOT`：派生产物输出目录
 - `KANOMORI_MEDIA_SOURCE_ROOT`：source-store 镜像，本地开发默认 `./samples`
+- `KANOMORI_AUDIO_ASR_MODEL`：调用 `POST /search/audio` 前必须设置；值要与生成
+  已索引语料转写结果时使用的 kotoba-whisper 模型版本一致
 
 分布式 worker 还需要：
 
@@ -69,6 +71,7 @@ uv run uvicorn kanomori.api.app:app --reload
 
 - `POST /search/transcript`
 - `POST /search/screenshot`
+- `POST /search/audio`（需要 `KANOMORI_AUDIO_ASR_MODEL`）
 - `POST /ingest`
 - `POST /ingest/batch`
 - `GET /ingest/{job_id}`
@@ -129,6 +132,16 @@ curl -X POST http://localhost:8000/search/transcript \
 ```
 
 截图检索是 multipart 请求，通常更适合通过演示 UI 或一个小的 HTTP 客户端脚本来验证。
+
+音频检索也是 multipart 请求。它会先用 kotoba-whisper 转写上传的查询片段，然后检索
+现有的台词索引。使用前需要安装 `embed` 依赖组，并在 `.env` 中把
+`KANOMORI_AUDIO_ASR_MODEL` 设置为生成语料转写结果时使用的同一个 kotoba-whisper 模型版本。
+
+```bash
+curl -X POST http://localhost:8000/search/audio \
+  -F file=@clip.wav \
+  -F k=5
+```
 
 ## 下一步
 

@@ -29,7 +29,7 @@ Guidance:
 
 - `uv sync` is enough for core API work and most pure-logic tests
 - `ingest` adds frame extraction, OCR, and JP tokenization support
-- `embed` adds text/image model dependencies
+- `embed` adds text/image/audio model dependencies
 - `worker-cpu` is the full CPU worker target
 - `worker-cuda` is the full CUDA worker target
 
@@ -45,6 +45,8 @@ Important variables:
 - `KANOMORI_KITS_DIR`: sibling KITS checkout
 - `KANOMORI_MEDIA_ROOT`: derived artifacts output directory
 - `KANOMORI_MEDIA_SOURCE_ROOT`: source-store mirror, `./samples` in local development
+- `KANOMORI_AUDIO_ASR_MODEL`: required for `POST /search/audio`; set it to the
+  kotoba-whisper model version that produced the indexed corpus transcripts
 
 For distributed workers, also set:
 
@@ -70,6 +72,7 @@ Useful routes:
 
 - `POST /search/transcript`
 - `POST /search/screenshot`
+- `POST /search/audio` (requires `KANOMORI_AUDIO_ASR_MODEL`)
 - `POST /ingest`
 - `POST /ingest/batch`
 - `GET /ingest/{job_id}`
@@ -131,6 +134,17 @@ curl -X POST http://localhost:8000/search/transcript \
 
 Screenshot search is multipart and is usually easiest to exercise through the demo UI or a small
 HTTP client script.
+
+Audio search is also multipart. It transcribes the uploaded query clip with kotoba-whisper, then
+searches the existing transcript index. Before using it, install the `embed` dependency group and
+set `KANOMORI_AUDIO_ASR_MODEL` in `.env` to the same kotoba-whisper model version used when the
+corpus was transcribed.
+
+```bash
+curl -X POST http://localhost:8000/search/audio \
+  -F file=@clip.wav \
+  -F k=5
+```
 
 ## Where to go next
 
