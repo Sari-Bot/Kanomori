@@ -2,17 +2,26 @@
 
 ARG CUDA_IMAGE=nvidia/cuda:13.0.2-cudnn-runtime-ubuntu24.04
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.19
+ARG APT_MIRROR_HOST=mirrors.tuna.tsinghua.edu.cn
 
 FROM ${UV_IMAGE} AS uv-bin
 
 FROM ${CUDA_IMAGE} AS runtime
+
+ARG APT_MIRROR_HOST
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-RUN apt-get update \
+RUN if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
+        sed -ri "s|https?://archive.ubuntu.com/ubuntu/?|https://${APT_MIRROR_HOST}/ubuntu/|g; s|https?://security.ubuntu.com/ubuntu/?|https://${APT_MIRROR_HOST}/ubuntu/|g; s|https?://ports.ubuntu.com/ubuntu-ports/?|https://${APT_MIRROR_HOST}/ubuntu-ports/|g" /etc/apt/sources.list.d/ubuntu.sources; \
+    fi \
+    && if [ -f /etc/apt/sources.list ]; then \
+        sed -ri "s|https?://archive.ubuntu.com/ubuntu/?|https://${APT_MIRROR_HOST}/ubuntu/|g; s|https?://security.ubuntu.com/ubuntu/?|https://${APT_MIRROR_HOST}/ubuntu/|g; s|https?://ports.ubuntu.com/ubuntu-ports/?|https://${APT_MIRROR_HOST}/ubuntu-ports/|g" /etc/apt/sources.list; \
+    fi \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         ffmpeg \
