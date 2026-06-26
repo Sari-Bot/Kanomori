@@ -56,6 +56,10 @@ def test_index_page_renders_search_form(client) -> None:
     assert 'id="audio-record-start"' in body
     assert 'id="audio-record-stop"' in body
     assert 'id="audio-record-status"' in body
+    assert "Record shared/tab audio" in body
+    assert "window.isSecureContext" in body
+    assert '"audio/webm;codecs=opus"' in body
+    assert "new MediaStream(audioTracks)" in body
 
 
 def test_search_fragment_returns_result_cards(client, seeded) -> None:

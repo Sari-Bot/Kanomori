@@ -20,7 +20,7 @@
   <input type="file" name="file" accept="audio/*,video/*">
   <input type="hidden" name="k" value="10">
   <button type="submit">Search audio</button>
-  <button type="button" id="audio-record-start">Record shared audio</button>
+  <button type="button" id="audio-record-start">Record shared/tab audio</button>
   <button type="button" id="audio-record-stop" hidden disabled>Stop recording</button>
   <span id="audio-record-status" class="recording-status" role="status" aria-live="polite"></span>
 </form>
@@ -37,6 +37,7 @@
 
   let recorder = null;
   let stream = null;
+  let recorderStream = null;
   let chunks = [];
 
   const setStatus = (message, state = "") => {
@@ -45,6 +46,10 @@
   };
 
   const stopStream = () => {
+    if (recorderStream) {
+      recorderStream.getTracks().forEach((track) => track.stop());
+      recorderStream = null;
+    }
     if (!stream) return;
     stream.getTracks().forEach((track) => track.stop());
     stream = null;
@@ -58,7 +63,7 @@
 
   const preferredMimeType = () => {
     if (!window.MediaRecorder) return "";
-    const types = ["video/webm;codecs=opus", "video/webm", "audio/webm;codecs=opus"];
+    const types = ["audio/webm;codecs=opus", "audio/webm", "video/webm;codecs=opus", "video/webm"];
     return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
   };
 
@@ -71,7 +76,7 @@
   };
 
   const submitRecording = async () => {
-    const type = recorder?.mimeType || "video/webm";
+    const type = recorder?.mimeType || "audio/webm";
     const blob = new Blob(chunks, { type });
     recorder = null;
     chunks = [];
@@ -114,24 +119,38 @@
   };
 
   const startRecording = async () => {
+    if (!window.isSecureContext) {
+      setStatus("Recording needs a secure browser context; use localhost or HTTPS.", "error");
+      return;
+    }
     if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
       setStatus("Recording is not supported in this browser; upload a file instead.", "error");
       return;
     }
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
+        video: { displaySurface: "browser" },
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          suppressLocalAudioPlayback: false,
+        },
         systemAudio: "include",
       });
-      if (!stream.getAudioTracks().length) {
+      const audioTracks = stream.getAudioTracks();
+      if (!audioTracks.length) {
         stopStream();
-        setStatus("No shared audio track was provided; upload a file instead.", "error");
+        setStatus("No shared audio track was provided. In Chrome, choose a tab with audio sharing enabled or upload a file instead.", "error");
         return;
       }
+      const [videoTrack] = stream.getVideoTracks();
+      console.info("Kanomori audio capture source", videoTrack?.getSettings?.().displaySurface);
       chunks = [];
       const mimeType = preferredMimeType();
-      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recorderStream = new MediaStream(audioTracks);
+      recorder = mimeType
+        ? new MediaRecorder(recorderStream, { mimeType })
+        : new MediaRecorder(recorderStream);
       recorder.addEventListener("dataavailable", (event) => {
         if (event.data?.size) chunks.push(event.data);
       });
