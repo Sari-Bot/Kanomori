@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from pgvector.psycopg import register_vector
 
@@ -9,14 +7,6 @@ from kanomori.retrieval import audio
 from kanomori.text import normalize, tokenize_for_fts
 
 pytestmark = pytest.mark.requires_db
-
-
-class FakeASR:
-    def transcribe(self, _path: Path):
-        return [
-            {"start": 0.0, "end": 2.0, "text": "今日はゲーム配信"},
-            {"start": 2.0, "end": 4.0, "text": "雑談タイム"},
-        ]
 
 
 def _insert_video(conn, content_hash: str) -> int:
@@ -60,8 +50,10 @@ def test_audio_candidates_uses_fake_asr_and_existing_transcript_index(
 
     transcript, hits = audio.audio_candidates(
         db_conn,
-        Path("query.wav"),
-        FakeASR(),
+        [
+            {"start": 0.0, "end": 2.0, "text": "今日はゲーム配信"},
+            {"start": 2.0, "end": 4.0, "text": "雑談タイム"},
+        ],
         fake_embedder,
         k=5,
         per_window_k=5,

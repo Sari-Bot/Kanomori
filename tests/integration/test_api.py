@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from pgvector.psycopg import register_vector
 
+from kanomori.config import get_settings
 from kanomori.embed.phash import to_signed_bigint
 from kanomori.text import tokenize_for_fts
 
@@ -28,10 +29,13 @@ def client(db_conn, fake_embedder, monkeypatch):
     from kanomori.api import app as app_module
 
     # The endpoints fetch a shared embedder via app_module.get_embedder; override it.
+    monkeypatch.setenv("KANOMORI_PRELOAD_SEARCH_MODELS", "false")
+    get_settings.cache_clear()
     monkeypatch.setattr(app_module, "get_embedder", lambda: fake_embedder)
     app = app_module.create_app()
     with TestClient(app) as c:
         yield c
+    get_settings.cache_clear()
 
 
 @pytest.fixture

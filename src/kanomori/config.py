@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     # set it to the kotoba-whisper version that produced the indexed corpus.
     audio_asr_model: str | None = None
     audio_clip_max_sec: float = 35.0
+    # Preload online search models during API startup. Set false for lightweight dev/test runs.
+    preload_search_models: bool = True
 
     # OCR config is split by workload because offline ingestion can favor accuracy while
     # screenshot query may need a lower-latency profile.

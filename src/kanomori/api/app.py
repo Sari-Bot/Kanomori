@@ -1,14 +1,14 @@
 """FastAPI app factory and endpoints.
 
-``create_app`` wires a lifespan that opens the DB pool and preloads the text embedder once
-(so the CPU query path doesn't pay model cold-start per request), and registers the routes:
+``create_app`` wires a lifespan that optionally preloads online search models and registers
+the routes:
 
 - ``POST /search/transcript`` — hybrid transcript search → ranked moment hits.
 - ``POST /ingest`` — enqueue an ingestion job (the worker runs it); returns the job id.
 - ``GET  /ingest/{job_id}`` — report job status.
 
-``get_embedder`` is module-level so tests can override it with a fake; production builds the
-real BGE-M3 embedder lazily inside the lifespan.
+``get_embedder`` and companion accessors are module-level so tests can override them with
+fakes; production builds the real model wrappers lazily or during startup preload.
 """
 
 from __future__ import annotations
@@ -104,10 +104,26 @@ def get_asr():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm the embedder once on startup so the first query isn't slow.
-    get_embedder()
+    if get_settings().preload_search_models:
+        _preload_search_models()
     yield
     close_pool()
+
+
+def _preload_search_models() -> None:
+    """Load every model used by online search endpoints before serving requests."""
+    preloaders = [
+        ("text embedder", get_embedder),
+        ("image embedder", get_image_embedder),
+        ("OCR reader", get_ocr_reader),
+        ("ASR", lambda: get_asr().warmup()),
+    ]
+    for name, preload in preloaders:
+        try:
+            preload()
+        except Exception:
+            logger.exception("failed to preload search model: %s", name)
+            raise
 
 
 async def _body_preview(request: Request) -> str:
@@ -320,10 +336,9 @@ async def _search_audio_upload(file: UploadFile, k: int) -> AudioSearchResponse:
         if duration > settings.audio_clip_max_sec:
             detail = f"audio clip too long: {duration:.1f}s > {settings.audio_clip_max_sec:.1f}s"
             raise HTTPException(status_code=400, detail=detail)
+        segments = get_asr().transcribe(wav)
         with connection() as conn:
-            transcript_text, hits = audio.audio_candidates(
-                conn, wav, get_asr(), get_embedder(), k=k
-            )
+            transcript_text, hits = audio.audio_candidates(conn, segments, get_embedder(), k=k)
 
     if not transcript_text.strip():
         raise HTTPException(status_code=422, detail="empty transcription")

@@ -71,6 +71,26 @@ def test_kotoba_whisper_transcribe_uses_kits_compatible_decode_params(monkeypatc
     assert segments == [{"start": 0.25, "end": 1.5, "text": "こんにちは"}]
 
 
+def test_kotoba_whisper_warmup_reuses_loaded_pipeline(monkeypatch) -> None:
+    fake_pipe = FakePipe()
+    pipeline_calls = []
+
+    def fake_pipeline(task, **kwargs):
+        pipeline_calls.append((task, kwargs))
+        return fake_pipe
+
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(float32="float32"))
+    monkeypatch.setitem(sys.modules, "transformers", types.SimpleNamespace(pipeline=fake_pipeline))
+
+    wrapper = asr.KotobaWhisperASR(model_name="kotoba-test", device="cpu")
+
+    wrapper.warmup()
+    segments = wrapper.transcribe(Path("clip.wav"))
+
+    assert len(pipeline_calls) == 1
+    assert segments == [{"start": 0.25, "end": 1.5, "text": "こんにちは"}]
+
+
 def test_kotoba_whisper_requires_explicit_model(monkeypatch) -> None:
     monkeypatch.setattr(asr, "get_settings", lambda: types.SimpleNamespace(audio_asr_model=None))
 

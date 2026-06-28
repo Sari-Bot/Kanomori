@@ -28,6 +28,7 @@ def test_settings_defaults_load() -> None:
     assert s.ingest_ocr_backend == "onnxruntime"
     assert s.query_ocr_model == "ppocrv5_server"
     assert s.query_ocr_backend == "onnxruntime"
+    assert s.preload_search_models is True
     assert s.stage_parse_transcript_device == "cpu"
     assert s.stage_ocr_device == "cpu"
     assert s.stage_classify_device == "cpu"
@@ -47,6 +48,14 @@ def test_stage_device_settings_accept_cpu_and_gpu() -> None:
     assert s.stage_ocr_device == "cpu"
     assert s.stage_classify_device == "gpu"
     assert s.stage_image_embed_device == "cpu"
+
+
+def test_preload_search_models_setting_accepts_env_false(monkeypatch) -> None:
+    monkeypatch.setenv("KANOMORI_PRELOAD_SEARCH_MODELS", "false")
+
+    s = Settings(_env_file=None)
+
+    assert s.preload_search_models is False
 
 
 def test_stage_device_settings_reject_invalid_values() -> None:

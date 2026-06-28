@@ -1,10 +1,10 @@
-"""Audio-upload retrieval by transcribing then searching the transcript index."""
+"""Audio-upload retrieval over already-transcribed query segments."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
+from kanomori.embed.asr import AsrSegment
 from kanomori.models import AudioSearchHit, Candidate, Modality, WindowEvidence
 from kanomori.retrieval import transcript
 from kanomori.retrieval.audio_query import QueryWindow, build_windows
@@ -24,14 +24,12 @@ class _BucketState:
 
 def audio_candidates(
     conn,
-    audio_wav_path: str | Path,
-    asr,
+    segments: list[AsrSegment],
     embedder,
     *,
     k: int = 10,
     per_window_k: int = 50,
 ) -> tuple[str, list[AudioSearchHit]]:
-    segments = asr.transcribe(audio_wav_path)
     full_text = normalize(" ".join(str(segment.get("text") or "") for segment in segments))
     windows = build_windows(segments)
     per_window = [

@@ -256,6 +256,7 @@ def client(db_conn, monkeypatch):
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("KANOMORI_COORDINATOR_TOKEN", TOKEN)
+    monkeypatch.setenv("KANOMORI_PRELOAD_SEARCH_MODELS", "false")
     get_settings.cache_clear()
 
     from kanomori.api import app as app_module

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 
+from kanomori.config import get_settings
+
 pytestmark = pytest.mark.requires_db
 
 
@@ -19,10 +21,13 @@ def client(db_conn, fake_embedder, monkeypatch):
 
     from kanomori.api import app as app_module
 
+    monkeypatch.setenv("KANOMORI_PRELOAD_SEARCH_MODELS", "false")
+    get_settings.cache_clear()
     monkeypatch.setattr(app_module, "get_embedder", lambda: fake_embedder)
     app = app_module.create_app()
     with TestClient(app) as c:
         yield c
+    get_settings.cache_clear()
 
 
 @pytest.fixture

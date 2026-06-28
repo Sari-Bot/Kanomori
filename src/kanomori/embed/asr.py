@@ -45,6 +45,10 @@ class KotobaWhisperASR:
             )
         return self._pipe
 
+    def warmup(self) -> None:
+        """Load the ASR pipeline without transcribing an audio file."""
+        self._load()
+
     def transcribe(self, audio_wav_path: str | Path) -> list[AsrSegment]:
         pipe = self._load()
         result = pipe(
